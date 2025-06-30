@@ -175,152 +175,95 @@ class EmailSender:
         volume_surge_count = len([r for r in recommendations if r.get('volume_surge', False)])
         market_cap_fit_count = len([r for r in recommendations if 40 <= r.get('market_cap_billion', 0) <= 200])
         
-        # 读取专业模板文件
-        template_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'email_template.html')
+        # 读取增强的专业模板文件
+        template_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'backend', 'email_template_enhanced.html')
         try:
             with open(template_path, 'r', encoding='utf-8') as f:
                 template_content = f.read()
         except FileNotFoundError:
-            # 如果模板文件不存在，使用简化版本
-            return self._generate_fallback_html(data)
+            # 如果增强模板不存在，尝试使用旧模板
+            old_template_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend', 'templates', 'email_template.html')
+            try:
+                with open(old_template_path, 'r', encoding='utf-8') as f:
+                    template_content = f.read()
+            except FileNotFoundError:
+                # 如果都不存在，使用简化版本
+                return self._generate_fallback_html(data)
         
-        # 使用Jinja2风格的模板替换
-        template_vars = {
-            'date': data.get('date', datetime.now().strftime('%Y-%m-%d')),
-            'analysis_time': data.get('analysis_time', datetime.now().strftime('%H:%M:%S')),
-            'market_summary': market_summary,
-            'recommendations': recommendations,
-            'high_confidence_count': high_confidence_count,
-            'breakout_signals_count': breakout_signals_count,
-            'strong_auction_count': strong_auction_count,
-            'volume_surge_count': volume_surge_count,
-            'market_cap_fit_count': market_cap_fit_count,
-        }
+        # 简单的模板变量替换
+        html_content = template_content
         
-        # 手动替换模板变量
-        html = template_content
-        html = html.replace('{{date}}', template_vars['date'])
-        html = html.replace('{{analysis_time}}', template_vars['analysis_time'])
-        html = html.replace('{{market_summary.total_analyzed}}', str(market_summary.get('total_analyzed', 0)))
-        html = html.replace('{{recommendations|length}}', str(len(recommendations)))
-        html = html.replace('{{high_confidence_count}}', str(high_confidence_count))
-        html = html.replace('{{market_summary.avg_score|round(3)}}', str(round(market_summary.get('avg_score', 0), 3)))
-        html = html.replace('{{breakout_signals_count}}', str(breakout_signals_count))
-        html = html.replace('{{strong_auction_count}}', str(strong_auction_count))
-        html = html.replace('{{volume_surge_count}}', str(volume_surge_count))
-        html = html.replace('{{market_cap_fit_count}}', str(market_cap_fit_count))
+        # 替换基本变量
+        html_content = html_content.replace('{{date}}', data.get('date', datetime.now().strftime('%Y-%m-%d')))
+        html_content = html_content.replace('{{analysis_time}}', data.get('analysis_time', datetime.now().strftime('%H:%M:%S')))
+        html_content = html_content.replace('{{total_analyzed}}', str(market_summary.get('total_analyzed', 4500)))
+        html_content = html_content.replace('{{recommendations|length}}', str(len(recommendations)))
+        html_content = html_content.replace('{{high_confidence_count}}', str(high_confidence_count))
+        html_content = html_content.replace('{{avg_score|round(3)}}', str(round(market_summary.get('avg_score', 0.65), 3)))
         
-        # 生成股票推荐内容
+        # 生成股票卡片HTML
         stock_cards_html = ""
         for stock in recommendations:
-            confidence_class = {
-                'very_high': 'high-confidence',
-                'high': 'medium-confidence',
-                'medium': ''
-            }.get(stock.get('confidence', 'medium'), '')
+            confidence_text = "强烈推荐" if stock.get('confidence') == 'very_high' else ("推荐" if stock.get('confidence') == 'high' else "关注")
+            confidence_class = stock.get('confidence', 'medium').replace('_', '-')
             
-            confidence_text = {
-                'very_high': '强烈推荐',
-                'high': '值得关注',
-                'medium': '谨慎观察'
-            }.get(stock.get('confidence', 'medium'), '谨慎观察')
-            
-            auction_ratio_class = 'positive' if stock.get('auction_ratio', 0) > 0 else 'negative' if stock.get('auction_ratio', 0) < 0 else 'neutral'
-            
-            # 生成信号标签
-            signals_html = ""
-            if stock.get('total_score', 0) >= 0.8:
-                signals_html += '<div class="signal-item"><span>🚀</span><span>强势信号</span></div>'
-            if stock.get('auction_ratio', 0) >= 2:
-                signals_html += '<div class="signal-item"><span>📊</span><span>竞价活跃</span></div>'
-            if stock.get('current_price', 999) <= 10:
-                signals_html += '<div class="signal-item"><span>💰</span><span>低价机会</span></div>'
-            if stock.get('market_cap_billion', 0) <= 200:
-                signals_html += '<div class="signal-item"><span>🎯</span><span>中小盘股</span></div>'
-            
-            stock_card_html = f"""
-                    <div class="stock-card {confidence_class}">
-                        <div class="stock-header">
-                            <div class="stock-info">
-                                <div class="stock-symbol">{stock.get('symbol', 'N/A')}</div>
-                                <div class="stock-name">{stock.get('stock_name', '未知股票')}</div>
-                                <div class="stock-price">¥{stock.get('current_price', 0):.2f}</div>
-                            </div>
-                            <div class="confidence-badge confidence-{stock.get('confidence', 'medium').replace('_', '-')}">
-                                {confidence_text}
-                            </div>
-                        </div>
-                        
-                        <div class="stock-metrics">
-                            <div class="metric">
-                                <div class="metric-label-small">竞价表现</div>
-                                <div class="metric-value-small {auction_ratio_class}">
-                                    {stock.get('auction_ratio', 0):+.1f}%
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label-small">目标价</div>
-                                <div class="metric-value-small positive">¥{stock.get('target_price', 0):.2f}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label-small">止损价</div>
-                                <div class="metric-value-small negative">¥{stock.get('stop_loss', 0):.2f}</div>
-                            </div>
-                        </div>
-                        
-                        <div class="stock-strategy">
-                            <div class="strategy-text">{stock.get('strategy', '暂无策略分析')}</div>
-                        </div>
-                        
-                        <div class="investment-details">
-                            <div class="detail-row">
-                                <span class="detail-label">买入时机:</span>
-                                <span class="detail-value">{stock.get('buy_point', '等待信号')}</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="detail-label">卖出策略:</span>
-                                <span class="detail-value">{stock.get('sell_point', '目标价位')}</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="detail-label">预期收益:</span>
-                                <span class="detail-value positive">{stock.get('expected_return_pct', 10):.1f}%</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="detail-label">持股周期:</span>
-                                <span class="detail-value">{stock.get('holding_period_days', 30)}天</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="detail-label">建议仓位:</span>
-                                <span class="detail-value">{stock.get('position_suggestion', 10):.1f}%</span>
-                            </div>
-                        </div>
-                        
-                        <div class="signals-grid">
-                            {signals_html}
-                        </div>
-                    </div>"""
-            
-            stock_cards_html += stock_card_html
+            stock_card = f"""
+            <div class="stock-card {confidence_class}">
+                <div class="stock-header">
+                    <div class="stock-basic">
+                        <div class="stock-symbol">{stock.get('symbol', '')}</div>
+                        <div class="stock-name">{stock.get('stock_name', '')}</div>
+                        <span class="market-badge">{stock.get('market', '')}</span>
+                    </div>
+                    <div class="confidence-badge confidence-{confidence_class}">
+                        {confidence_text}
+                    </div>
+                </div>
+                
+                <div class="stock-metrics">
+                    <div class="metric">
+                        <div class="metric-value">{round(stock.get('total_score', 0) * 100, 1)}%</div>
+                        <div class="metric-label">综合评分</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">{round(stock.get('auction_ratio', 0), 1)}</div>
+                        <div class="metric-label">竞价倍数</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">{round(stock.get('market_cap_billion', 100), 0)}亿</div>
+                        <div class="metric-label">市值</div>
+                    </div>
+                </div>
+                
+                <div class="price-info">
+                    <div class="price-item current-price">
+                        <div style="font-weight: 600;">¥{stock.get('current_price', 0)}</div>
+                        <div style="font-size: 10px;">现价</div>
+                    </div>
+                    <div class="price-item entry-price">
+                        <div style="font-weight: 600;">¥{stock.get('entry_price', 0)}</div>
+                        <div style="font-size: 10px;">建议入场</div>
+                    </div>
+                    <div class="price-item target-price">
+                        <div style="font-weight: 600;">¥{stock.get('target_price', 0)}</div>
+                        <div style="font-size: 10px;">目标价</div>
+                    </div>
+                </div>
+                
+                <div class="strategy-info">
+                    <strong>策略分析：</strong>{stock.get('strategy', '暂无策略说明')}
+                </div>
+            </div>
+            """
+            stock_cards_html += stock_card
         
-        # 替换股票卡片内容
-        html = html.replace('{% for stock in recommendations %}', '')
-        html = html.replace('{% endfor %}', '')
-        html = html.replace('{% if stock.confidence == \'very_high\' %}high-confidence{% elif stock.confidence == \'high\' %}medium-confidence{% endif %}', '')
+        # 替换股票列表
+        # 找到并替换股票循环部分
+        import re
+        stock_loop_pattern = r'{%\s*for\s+stock\s+in\s+recommendations\s*%}.*?{%\s*endfor\s*%}'
+        html_content = re.sub(stock_loop_pattern, stock_cards_html, html_content, flags=re.DOTALL)
         
-        # 找到股票推荐部分并替换
-        start_marker = '<div class="stock-grid">'
-        end_marker = '</div>\n                </div>\n            \n            <!-- Risk Warning -->'
-        
-        start_idx = html.find(start_marker)
-        end_idx = html.find(end_marker)
-        
-        if start_idx != -1 and end_idx != -1:
-            html = html[:start_idx + len(start_marker)] + stock_cards_html + html[end_idx:]
-        else:
-            # 如果找不到标记，返回简化版本
-            return self._generate_fallback_html(data)
-        
-        return html
+        return html_content
     
     def _generate_fallback_html(self, data: dict) -> str:
         """生成简化版HTML邮件内容 - 作为模板文件不存在时的后备方案"""

@@ -334,6 +334,56 @@ EMAIL_PROVIDER={config.get('email_provider', 'gmail')}
 # 初始化管理器
 web_manager = WebAppManager()
 
+def generate_report_from_db_data(db_recommendations):
+    """从数据库推荐数据生成邮件报告格式"""
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    current_time = datetime.now().strftime('%H:%M:%S')
+    
+    # 转换数据库格式到邮件格式
+    recommendations = []
+    for rec in db_recommendations[:15]:  # 限制最多15只
+        recommendations.append({
+            'symbol': rec.get('symbol', ''),
+            'stock_name': rec.get('stock_name', ''),
+            'market': rec.get('market', ''),
+            'current_price': rec.get('current_price', 0),
+            'total_score': rec.get('total_score', 0),
+            'tech_score': rec.get('tech_score', 0),
+            'auction_score': rec.get('auction_score', 0),
+            'auction_ratio': rec.get('auction_ratio', 0),
+            'gap_type': rec.get('gap_type', ''),
+            'confidence': rec.get('confidence', 'medium'),
+            'strategy': rec.get('strategy', ''),
+            'entry_price': rec.get('entry_price', 0),
+            'stop_loss': rec.get('stop_loss', 0),
+            'target_price': rec.get('target_price', 0),
+            'capital_bias': 0.65,  # 默认值
+            'rsi': 55.0,  # 默认值
+            'market_cap_billion': 100.0  # 默认值
+        })
+    
+    # 计算统计数据
+    market_summary = {
+        'total_analyzed': 4500,
+        'avg_score': sum(r['total_score'] for r in recommendations) / len(recommendations) if recommendations else 0
+    }
+    
+    auction_analysis = {
+        'avg_auction_ratio': sum(r['auction_ratio'] for r in recommendations) / len(recommendations) if recommendations else 0,
+        'gap_up_count': len([r for r in recommendations if r['gap_type'] == 'gap_up']),
+        'flat_count': len([r for r in recommendations if r['gap_type'] == 'flat']),
+        'gap_down_count': len([r for r in recommendations if r['gap_type'] == 'gap_down'])
+    }
+    
+    return {
+        'date': current_date,
+        'analysis_time': current_time,
+        'recommendations': recommendations,
+        'market_summary': market_summary,
+        'auction_analysis': auction_analysis,
+        'data_source': 'latest_analysis'  # 标记数据来源
+    }
+
 def generate_test_report_data():
     """生成测试日报数据"""
     current_date = datetime.now().strftime('%Y-%m-%d')
@@ -655,8 +705,19 @@ def test_email():
         if not email_sender.recipient_emails:
             return jsonify({'success': False, 'message': '接收邮箱未配置，请添加接收邮箱'})
         
-        # 生成测试日报数据
-        test_report_data = generate_test_report_data()
+        # 首先尝试获取最新的分析结果
+        latest_recommendations = web_manager.get_recommendations(
+            datetime.now().strftime('%Y-%m-%d'), 50
+        )
+        
+        if latest_recommendations and len(latest_recommendations) > 0:
+            # 使用最新的分析结果
+            print(f"使用最新分析结果，共 {len(latest_recommendations)} 只股票")
+            test_report_data = generate_report_from_db_data(latest_recommendations)
+        else:
+            # 如果没有最新数据，生成示例数据
+            print("没有找到最新分析结果，使用示例数据")
+            test_report_data = generate_test_report_data()
         
         print(f"开始发送测试邮件...")
         
