@@ -27,7 +27,7 @@ const currentLabel = computed(() => navItems.find(n => route.path.startsWith(n.t
         <div class="flex items-center gap-2">
           <div class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">S</div>
           <div>
-            <div class="text-sm font-bold text-gray-900 leading-tight">CChanTrader-AI</div>
+            <div class="text-sm font-bold text-gray-900 leading-tight">智能选股助手</div>
             <div class="text-[10px] text-gray-400">管理后台</div>
           </div>
         </div>
