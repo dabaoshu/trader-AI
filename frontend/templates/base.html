@@ -337,6 +337,10 @@
                     <i data-lucide="star" class="w-4 h-4"></i>
                     <span>股票推荐</span>
                 </a>
+                <a class="nav-link flex items-center space-x-2 {% if request.endpoint == 'screener_page' %}active{% endif %}" href="{{ url_for('screener_page') }}">
+                    <i data-lucide="scan-search" class="w-4 h-4"></i>
+                    <span>条件选股</span>
+                </a>
                 <a class="nav-link flex items-center space-x-2 {% if request.endpoint == 'config' %}active{% endif %}" href="{{ url_for('config') }}">
                     <i data-lucide="settings" class="w-4 h-4"></i>
                     <span>系统配置</span>

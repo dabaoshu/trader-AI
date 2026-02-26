@@ -23,6 +23,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.services.email_config import EmailSender
 from backend.daily_report_generator import DailyReportGenerator
 from analysis.trading_day_scheduler import TradingDayScheduler
+from stock_screener.screener import StockScreener
+from stock_screener.models import ScreenerRecordManager
 
 app = Flask(__name__, 
            template_folder='../frontend/templates',
@@ -1070,6 +1072,122 @@ def get_stock_analysis_detail(symbol):
             """,
             "prices": []
         })
+
+# ------------------------------------------------------------------
+# 条件选股模块 (同花顺风格)
+# ------------------------------------------------------------------
+screener_record_mgr = ScreenerRecordManager()
+
+
+@app.route('/screener')
+def screener_page():
+    """条件选股页面"""
+    presets = StockScreener.get_preset_list()
+    records = screener_record_mgr.get_records(limit=20)
+    return render_template('screener.html', presets=presets, records=records)
+
+
+@app.route('/api/screener/run', methods=['POST'])
+def api_screener_run():
+    """执行条件选股并保存记录"""
+    try:
+        payload = request.json or {}
+        conditions = payload.get('conditions', {})
+        record_name = payload.get('name', '').strip()
+        preset_key = payload.get('preset_key', '')
+
+        if preset_key:
+            tpl = StockScreener.PRESET_TEMPLATES.get(preset_key)
+            if tpl:
+                conditions = tpl['conditions']
+                if not record_name:
+                    record_name = tpl['name']
+
+        if not record_name:
+            record_name = f"选股 {datetime.now().strftime('%m-%d %H:%M')}"
+
+        # 获取当日全部推荐股票作为候选池
+        today = datetime.now().strftime('%Y-%m-%d')
+        candidate_pool = web_manager.get_recommendations(today, limit=200)
+
+        # 候选池为空时用分析器补充
+        if not candidate_pool:
+            try:
+                from analysis.optimized_stock_analyzer import OptimizedStockAnalyzer
+                analyzer = OptimizedStockAnalyzer()
+                report = analyzer.generate_optimized_recommendations()
+                if report and 'recommendations' in report:
+                    candidate_pool = report['recommendations']
+                    web_manager.save_recommendations(candidate_pool, today)
+            except Exception as e:
+                print(f"⚠️ 自动补充候选池失败: {e}")
+
+        if not candidate_pool:
+            return jsonify({
+                'success': False,
+                'message': '没有可用的股票数据，请先在首页运行"立即分析"',
+            })
+
+        # 执行筛选
+        engine = StockScreener()
+        results = engine.screen(candidate_pool, conditions)
+
+        # 保存记录
+        save_conditions = dict(conditions)
+        if preset_key:
+            save_conditions['_preset_key'] = preset_key
+        record_id = screener_record_mgr.save_record(record_name, save_conditions, results)
+
+        return jsonify({
+            'success': True,
+            'message': f'筛选完成，共找到 {len(results)} 只符合条件的股票',
+            'data': {
+                'record_id': record_id,
+                'total': len(results),
+                'stocks': results,
+            }
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'选股失败: {str(e)}'})
+
+
+@app.route('/api/screener/presets', methods=['GET'])
+def api_screener_presets():
+    """获取预置选股模板列表"""
+    return jsonify({
+        'success': True,
+        'data': StockScreener.get_preset_list(),
+    })
+
+
+@app.route('/api/screener/records', methods=['GET'])
+def api_screener_records():
+    """获取历史选股记录"""
+    limit = request.args.get('limit', 20, type=int)
+    records = screener_record_mgr.get_records(limit=limit)
+    return jsonify({'success': True, 'data': records})
+
+
+@app.route('/api/screener/records/<int:record_id>', methods=['GET'])
+def api_screener_record_detail(record_id):
+    """获取单条选股记录详情"""
+    record = screener_record_mgr.get_record_by_id(record_id)
+    if not record:
+        return jsonify({'success': False, 'message': '记录不存在'})
+    return jsonify({'success': True, 'data': record})
+
+
+@app.route('/api/screener/records/<int:record_id>', methods=['DELETE'])
+def api_screener_record_delete(record_id):
+    """删除选股记录"""
+    ok = screener_record_mgr.delete_record(record_id)
+    if ok:
+        return jsonify({'success': True, 'message': '记录已删除'})
+    return jsonify({'success': False, 'message': '删除失败，记录可能不存在'})
+
 
 @app.route("/health")
 def health():
