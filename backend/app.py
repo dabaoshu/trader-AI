@@ -31,6 +31,23 @@ app = Flask(__name__,
            static_folder='../frontend/static')
 app.secret_key = 'cchan_trader_ai_secret_key'
 
+
+@app.after_request
+def add_cors_headers(response):
+    """为管理后台 Vue 前端添加 CORS 支持"""
+    origin = request.headers.get('Origin', '')
+    if origin.startswith('http://localhost:') or origin.startswith('http://127.0.0.1:'):
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    return response
+
+
+@app.route('/api/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    """处理预检请求"""
+    return '', 204
+
 # 全局变量
 scheduler_instance = None
 scheduler_thread = None

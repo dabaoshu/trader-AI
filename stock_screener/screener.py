@@ -207,4 +207,53 @@ class StockScreener:
             if keyword not in symbol and keyword not in name:
                 return False
 
+        # --- 手动输入自定义条件（custom_rules） ---
+        custom_rules = conditions.get('custom_rules', [])
+        for rule in custom_rules:
+            if not self._eval_custom_rule(stock, rule):
+                return False
+
+        return True
+
+    @staticmethod
+    def _eval_custom_rule(stock, rule):
+        """
+        评估单条手动输入的自定义规则
+
+        @param {dict} stock - 股票数据
+        @param {dict} rule  - 格式 {"field": "...", "op": "...", "value": ...}
+                               op 支持: gt / gte / lt / lte / eq / neq / contains
+        @returns {bool}
+        """
+        field = rule.get('field', '')
+        op = rule.get('op', '')
+        target = rule.get('value')
+        if not field or not op or target is None:
+            return True
+
+        actual = stock.get(field)
+        if actual is None:
+            return False
+
+        try:
+            if op in ('gt', 'gte', 'lt', 'lte', 'eq', 'neq'):
+                actual_num = float(actual)
+                target_num = float(target)
+                if op == 'gt':
+                    return actual_num > target_num
+                if op == 'gte':
+                    return actual_num >= target_num
+                if op == 'lt':
+                    return actual_num < target_num
+                if op == 'lte':
+                    return actual_num <= target_num
+                if op == 'eq':
+                    return actual_num == target_num
+                if op == 'neq':
+                    return actual_num != target_num
+            elif op == 'contains':
+                return str(target) in str(actual)
+        except (ValueError, TypeError):
+            return False
+
         return True

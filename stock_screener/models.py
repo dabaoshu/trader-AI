@@ -23,7 +23,7 @@ class ScreenerRecordManager:
     # 建表
     # ------------------------------------------------------------------
     def _ensure_table(self):
-        """确保 screener_records 表存在"""
+        """确保 screener_records 表存在，并包含 result_data 列"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('''
@@ -34,10 +34,16 @@ class ScreenerRecordManager:
                 result_count INTEGER DEFAULT 0,
                 result_symbols TEXT,
                 result_summary TEXT,
+                result_data TEXT,
                 preset_key  TEXT,
                 created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # 兼容旧表：如果 result_data 列不存在则添加
+        try:
+            cursor.execute("SELECT result_data FROM screener_records LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE screener_records ADD COLUMN result_data TEXT")
         conn.commit()
         conn.close()
 
@@ -46,7 +52,7 @@ class ScreenerRecordManager:
     # ------------------------------------------------------------------
     def save_record(self, name, conditions, results):
         """
-        保存一条选股记录
+        保存一条选股记录（包含完整的条件和结果数据）
 
         @param {str} name - 记录名称
         @param {dict} conditions - 筛选条件
@@ -55,19 +61,22 @@ class ScreenerRecordManager:
         """
         symbols = [s.get('symbol', '') for s in results]
         summary = self._build_summary(results)
+        full_data = self._serialize_results(results)
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO screener_records
-                (name, conditions, result_count, result_symbols, result_summary, preset_key, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (name, conditions, result_count, result_symbols,
+                 result_summary, result_data, preset_key, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             name,
             json.dumps(conditions, ensure_ascii=False),
             len(results),
             json.dumps(symbols, ensure_ascii=False),
             json.dumps(summary, ensure_ascii=False),
+            json.dumps(full_data, ensure_ascii=False),
             conditions.get('_preset_key', ''),
             datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         ))
@@ -81,7 +90,7 @@ class ScreenerRecordManager:
     # ------------------------------------------------------------------
     def get_records(self, limit=50):
         """
-        获取历史选股记录
+        获取历史选股记录（列表不含完整 result_data 以节省带宽）
 
         @param {int} limit - 最大返回条数
         @returns {list[dict]} 记录列表，按创建时间降序
@@ -109,7 +118,7 @@ class ScreenerRecordManager:
 
     def get_record_by_id(self, record_id):
         """
-        按 id 获取单条记录
+        按 id 获取单条记录（包含完整 result_data）
 
         @param {int} record_id
         @returns {dict|None}
@@ -118,7 +127,7 @@ class ScreenerRecordManager:
         cursor = conn.cursor()
         cursor.execute('''
             SELECT id, name, conditions, result_count, result_symbols,
-                   result_summary, preset_key, created_at
+                   result_summary, result_data, preset_key, created_at
             FROM screener_records
             WHERE id = ?
         ''', (record_id,))
@@ -130,11 +139,12 @@ class ScreenerRecordManager:
             return None
 
         columns = ['id', 'name', 'conditions', 'result_count', 'result_symbols',
-                    'result_summary', 'preset_key', 'created_at']
+                    'result_summary', 'result_data', 'preset_key', 'created_at']
         record = dict(zip(columns, row))
         record['conditions'] = json.loads(record['conditions']) if record['conditions'] else {}
         record['result_symbols'] = json.loads(record['result_symbols']) if record['result_symbols'] else []
         record['result_summary'] = json.loads(record['result_summary']) if record['result_summary'] else {}
+        record['result_data'] = json.loads(record['result_data']) if record.get('result_data') else []
         return record
 
     def delete_record(self, record_id):
@@ -155,6 +165,31 @@ class ScreenerRecordManager:
     # ------------------------------------------------------------------
     # 辅助
     # ------------------------------------------------------------------
+    @staticmethod
+    def _serialize_results(results):
+        """
+        序列化完整的筛选结果用于持久化（只保留关键字段，去除 created_at 等数据库元数据）
+
+        @param {list} results - 股票列表
+        @returns {list[dict]}
+        """
+        keep_keys = [
+            'symbol', 'stock_name', 'market', 'current_price',
+            'total_score', 'tech_score', 'auction_score',
+            'auction_ratio', 'gap_type', 'confidence',
+            'strategy', 'entry_price', 'stop_loss', 'target_price',
+            'rsi', 'market_cap_billion',
+        ]
+        serialized = []
+        for s in results:
+            item = {}
+            for k in keep_keys:
+                v = s.get(k)
+                if v is not None:
+                    item[k] = round(v, 4) if isinstance(v, float) else v
+            serialized.append(item)
+        return serialized
+
     @staticmethod
     def _build_summary(results):
         """从筛选结果中提取统计摘要"""

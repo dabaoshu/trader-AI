@@ -176,6 +176,19 @@
                         <input type="text" id="keyword" class="input" placeholder="股票代码或名称">
                     </div>
 
+                    <!-- 手动输入自定义条件 -->
+                    <div>
+                        <label class="block text-sm font-medium mb-2 flex items-center">
+                            <i data-lucide="pencil-line" class="w-4 h-4 mr-1 text-indigo-500"></i>
+                            手动自定义条件
+                            <span class="text-xs text-gray-400 ml-2">（可添加多条，所有条件同时满足才通过）</span>
+                        </label>
+                        <div id="customRulesContainer" class="space-y-2"></div>
+                        <button type="button" class="button button-sm button-outline mt-2" onclick="addCustomRule()">
+                            <i data-lucide="plus" class="w-4 h-4 mr-1"></i>添加条件
+                        </button>
+                    </div>
+
                     <!-- 操作按钮 -->
                     <div class="flex gap-3 pt-2">
                         <button id="runScreenerBtn" class="button button-primary flex-1" onclick="runScreener()">
@@ -322,6 +335,67 @@
         showNotification(`已加载模板「${tpl.name}」，点击"开始选股"执行`, 'default');
     }
 
+    /* ---------- 手动自定义条件 ---------- */
+    const FIELD_OPTIONS = [
+        { value: 'current_price',      label: '当前价格' },
+        { value: 'total_score',        label: '综合评分' },
+        { value: 'tech_score',         label: '技术评分' },
+        { value: 'auction_score',      label: '竞价评分' },
+        { value: 'auction_ratio',      label: '竞价涨幅(%)' },
+        { value: 'rsi',                label: 'RSI' },
+        { value: 'market_cap_billion', label: '市值(亿)' },
+        { value: 'entry_price',        label: '入场价' },
+        { value: 'stop_loss',          label: '止损价' },
+        { value: 'target_price',       label: '目标价' },
+        { value: 'symbol',             label: '股票代码' },
+        { value: 'stock_name',         label: '股票名称' },
+        { value: 'market',             label: '市场' },
+        { value: 'strategy',           label: '策略' },
+    ];
+    const OP_OPTIONS = [
+        { value: 'gt',       label: '>' },
+        { value: 'gte',      label: '≥' },
+        { value: 'lt',       label: '<' },
+        { value: 'lte',      label: '≤' },
+        { value: 'eq',       label: '=' },
+        { value: 'neq',      label: '≠' },
+        { value: 'contains', label: '包含' },
+    ];
+    let ruleCounter = 0;
+
+    function addCustomRule() {
+        ruleCounter++;
+        const id = ruleCounter;
+        const fieldOpts = FIELD_OPTIONS.map(f => `<option value="${f.value}">${f.label}</option>`).join('');
+        const opOpts = OP_OPTIONS.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+        const html = `
+            <div class="flex items-center gap-2 custom-rule" data-rule-id="${id}">
+                <select class="select text-sm h-9 w-36 rule-field">${fieldOpts}</select>
+                <select class="select text-sm h-9 w-20 rule-op">${opOpts}</select>
+                <input type="text" class="input text-sm h-9 flex-1 rule-value" placeholder="值">
+                <button type="button" class="text-gray-400 hover:text-red-500 p-1" onclick="this.closest('.custom-rule').remove()">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+        `;
+        document.getElementById('customRulesContainer').insertAdjacentHTML('beforeend', html);
+        lucide.createIcons();
+    }
+
+    function gatherCustomRules() {
+        const rules = [];
+        document.querySelectorAll('.custom-rule').forEach(el => {
+            const field = el.querySelector('.rule-field').value;
+            const op = el.querySelector('.rule-op').value;
+            const raw = el.querySelector('.rule-value').value.trim();
+            if (field && op && raw !== '') {
+                const numVal = Number(raw);
+                rules.push({ field, op, value: isNaN(numVal) ? raw : numVal });
+            }
+        });
+        return rules;
+    }
+
     /* ---------- 收集条件 ---------- */
     function gatherConditions() {
         const cond = {};
@@ -349,6 +423,9 @@
 
         const kw = document.getElementById('keyword').value.trim();
         if (kw) cond.keyword = kw;
+
+        const customRules = gatherCustomRules();
+        if (customRules.length) cond.custom_rules = customRules;
 
         return cond;
     }
@@ -484,8 +561,9 @@
             .then(resp => {
                 if (!resp.success) { showNotification(resp.message, 'destructive'); return; }
                 const rec = resp.data;
-                const summary = rec.result_summary || {};
-                const stocks = summary.top_stocks || [];
+                const stocks = (rec.result_data && rec.result_data.length)
+                    ? rec.result_data
+                    : (rec.result_summary || {}).top_stocks || [];
 
                 renderResults({
                     record_id: rec.id,
@@ -523,6 +601,7 @@
         document.querySelectorAll('.preset-btn').forEach(btn => {
             btn.classList.remove('border-blue-500', 'bg-blue-50');
         });
+        document.getElementById('customRulesContainer').innerHTML = '';
     }
 </script>
 {% endblock %}
