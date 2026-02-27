@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import type { ApiResponse, StockItem } from '../types'
 import ToastNotify from '../components/ToastNotify.vue'
 import AddToWatchlist from '../components/AddToWatchlist.vue'
@@ -22,12 +22,28 @@ interface DailyStock extends StockItem {
   status?: string
 }
 
+/** 分析任务项 */
+interface AnalysisTask {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  total: number
+  current_stock: { symbol: string; name: string } | null
+  message: string
+  phase: string
+  result?: { count: number; date: string }
+  error?: string
+  created_at: string
+}
+
 const status = ref<SystemStatus | null>(null)
 const stocks = ref<DailyStock[]>([])
 const dateFilter = ref(new Date().toISOString().slice(0, 10))
 const loading = ref(false)
 const analyzing = ref(false)
 const toast = ref({ show: false, msg: '', type: 'info' })
+const analysisQueue = ref<AnalysisTask[]>([])
+let queuePollTimer: ReturnType<typeof setInterval> | null = null
 
 function notify(msg: string, type = 'info') {
   toast.value = { show: true, msg, type }
@@ -42,6 +58,9 @@ const avgScore = computed(() => {
   return stocks.value.reduce((s, x) => s + (x.total_score || 0), 0) / stocks.value.length
 })
 const markets = computed(() => [...new Set(stocks.value.map(s => s.market))])
+
+/** 是否有运行中的分析任务 */
+const hasRunningTask = computed(() => analysisQueue.value.some(t => t.status === 'pending' || t.status === 'running'))
 
 async function loadStatus() {
   try {
@@ -62,13 +81,50 @@ async function loadRecommendations() {
   }
 }
 
+/** 加载分析任务队列 */
+async function loadAnalysisQueue() {
+  try {
+    const res = await fetch('/api/daily/analysis_queue?limit=10')
+    const data: ApiResponse<{ tasks: AnalysisTask[] }> = await res.json()
+    if (data.success) analysisQueue.value = data.data.tasks
+  } catch { /* ignore */ }
+}
+
+/** 启动队列轮询（有运行中任务时） */
+function startQueuePolling() {
+  if (queuePollTimer) return
+  queuePollTimer = setInterval(async () => {
+    const hadRunning = hasRunningTask.value
+    await loadAnalysisQueue()
+    if (hadRunning && !hasRunningTask.value) {
+      await onTaskCompleted()
+    }
+    if (!hasRunningTask.value && queuePollTimer) {
+      clearInterval(queuePollTimer)
+      queuePollTimer = null
+    }
+  }, 1500)
+}
+
+/** 停止队列轮询 */
+function stopQueuePolling() {
+  if (queuePollTimer) {
+    clearInterval(queuePollTimer)
+    queuePollTimer = null
+  }
+}
+
 async function runAnalysis() {
   analyzing.value = true
   notify('开始执行股票分析…', 'info')
   try {
     const res = await fetch('/api/daily/run_analysis', { method: 'POST' })
     const data = await res.json()
-    if (data.success) {
+    if (data.success && data.data?.task_id) {
+      notify('分析任务已加入队列', 'info')
+      await loadAnalysisQueue()
+      startQueuePolling()
+    } else if (data.success) {
       notify(data.message, 'success')
       await loadRecommendations()
       await loadStatus()
@@ -78,6 +134,12 @@ async function runAnalysis() {
   } finally {
     analyzing.value = false
   }
+}
+
+/** 任务完成时刷新推荐列表 */
+async function onTaskCompleted() {
+  await loadRecommendations()
+  await loadStatus()
 }
 
 async function updateStockStatus(stockId: number, newStatus: string) {
@@ -111,8 +173,24 @@ function statusOpts() {
   ]
 }
 
+function taskStatusLabel(s: string) {
+  return { pending: '等待中', running: '运行中', completed: '已完成', failed: '失败' }[s] || s
+}
+
+function taskStatusCls(s: string) {
+  if (s === 'running') return 'bg-blue-100 text-blue-700 border-blue-200'
+  if (s === 'completed') return 'bg-green-100 text-green-700 border-green-200'
+  if (s === 'failed') return 'bg-red-100 text-red-700 border-red-200'
+  return 'bg-gray-100 text-gray-600 border-gray-200'
+}
+
 onMounted(async () => {
-  await Promise.all([loadStatus(), loadRecommendations()])
+  await Promise.all([loadStatus(), loadRecommendations(), loadAnalysisQueue()])
+  if (hasRunningTask.value) startQueuePolling()
+})
+
+onUnmounted(() => {
+  stopQueuePolling()
 })
 </script>
 
@@ -126,9 +204,9 @@ onMounted(async () => {
       <div class="bg-white rounded-xl border border-gray-200 p-5 text-center">
         <div class="text-3xl font-bold text-indigo-600">{{ status?.today_recommendations ?? '-' }}</div>
         <div class="text-xs text-gray-500 mt-1">今日推荐</div>
-        <button @click="runAnalysis" :disabled="analyzing"
+        <button @click="runAnalysis" :disabled="analyzing || hasRunningTask"
                 class="mt-3 w-full text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
-          {{ analyzing ? '分析中…' : '立即分析' }}
+          {{ analyzing || hasRunningTask ? '分析中…' : '立即分析' }}
         </button>
       </div>
       <div class="bg-white rounded-xl border border-gray-200 p-5 text-center">
@@ -152,6 +230,46 @@ onMounted(async () => {
                 class="mt-3 w-full text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
           刷新
         </button>
+      </div>
+    </div>
+
+    <!-- 分析任务队列 -->
+    <div v-if="analysisQueue.length" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <span class="inline-block w-2 h-2 rounded-full bg-indigo-500 animate-pulse" v-if="hasRunningTask"></span>
+          分析任务队列
+        </h3>
+        <button @click="loadAnalysisQueue" class="text-xs text-indigo-600 hover:text-indigo-700">刷新</button>
+      </div>
+      <div class="divide-y divide-gray-100">
+        <div v-for="t in analysisQueue" :key="t.id"
+             class="px-5 py-4 flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono text-gray-500">{{ t.id }}</span>
+            <span class="text-xs px-2 py-0.5 rounded border" :class="taskStatusCls(t.status)">
+              {{ taskStatusLabel(t.status) }}
+            </span>
+          </div>
+          <div v-if="t.status === 'running' && t.total > 0" class="space-y-1">
+            <div class="flex justify-between text-xs text-gray-600">
+              <span>{{ t.message }}</span>
+              <span>{{ t.progress }} / {{ t.total }}</span>
+            </div>
+            <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                   :style="{ width: Math.min(100, (t.progress / t.total) * 100) + '%' }"></div>
+            </div>
+            <div v-if="t.current_stock" class="text-xs text-indigo-600">
+              当前: {{ t.current_stock.name }} ({{ t.current_stock.symbol }})
+            </div>
+          </div>
+          <div v-else class="text-xs text-gray-500">{{ t.message }}</div>
+          <div v-if="t.status === 'completed' && t.result" class="text-xs text-green-600">
+            推荐 {{ t.result.count }} 只 · {{ t.result.date }}
+          </div>
+          <div v-if="t.status === 'failed' && t.error" class="text-xs text-red-600">{{ t.error }}</div>
+        </div>
       </div>
     </div>
 
@@ -324,9 +442,9 @@ onMounted(async () => {
       </svg>
       <p class="text-sm mb-2">暂无推荐股票</p>
       <p class="text-xs mb-4">点击「立即分析」开始生成今日推荐</p>
-      <button @click="runAnalysis" :disabled="analyzing"
+      <button @click="runAnalysis" :disabled="analyzing || hasRunningTask"
               class="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
-        {{ analyzing ? '分析中…' : '开始分析' }}
+        {{ analyzing || hasRunningTask ? '分析中…' : '开始分析' }}
       </button>
     </div>
   </div>
