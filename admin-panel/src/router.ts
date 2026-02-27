@@ -5,7 +5,12 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/records',
+      redirect: '/daily',
+    },
+    {
+      path: '/daily',
+      name: 'Daily',
+      component: () => import('./views/DailyView.vue'),
     },
     {
       path: '/records',

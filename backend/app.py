@@ -1324,6 +1324,75 @@ def api_screener_record_delete(record_id):
 
 
 # ------------------------------------------------------------------
+# 每日推荐 API（供 Vue 前端使用）
+# ------------------------------------------------------------------
+
+@app.route('/api/daily/status', methods=['GET'])
+def api_daily_status():
+    """获取系统状态 + 今日推荐概要"""
+    try:
+        status = web_manager.get_system_status()
+        return jsonify({'success': True, 'data': status})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/daily/recommendations', methods=['GET'])
+def api_daily_recommendations():
+    """获取每日推荐列表（支持日期过滤）"""
+    try:
+        date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+        limit = request.args.get('limit', 50, type=int)
+        recs = web_manager.get_recommendations(date_filter, limit)
+        return jsonify({'success': True, 'data': recs, 'date': date_filter})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/daily/run_analysis', methods=['POST'])
+def api_daily_run_analysis():
+    """执行每日分析"""
+    try:
+        from analysis.optimized_stock_analyzer import OptimizedStockAnalyzer
+        analyzer = OptimizedStockAnalyzer()
+        report_data = analyzer.generate_optimized_recommendations()
+
+        if report_data and 'recommendations' in report_data:
+            recs = report_data['recommendations']
+            web_manager.save_recommendations(recs, report_data['date'])
+            return jsonify({
+                'success': True,
+                'message': f'分析完成，共 {len(recs)} 只推荐股票',
+                'data': {
+                    'count': len(recs),
+                    'date': report_data['date'],
+                }
+            })
+        return jsonify({'success': False, 'message': '分析完成但无推荐股票'})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'分析失败: {str(e)}'})
+
+
+@app.route('/api/daily/update_status', methods=['POST'])
+def api_daily_update_status():
+    """更新股票状态（待决策/已买入/观察中/已忽略）"""
+    try:
+        data = request.json or {}
+        stock_id = data.get('id')
+        new_status = data.get('status')
+        conn = sqlite3.connect(web_manager.db_path)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE stock_recommendations SET status = ? WHERE id = ?', (new_status, stock_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+# ------------------------------------------------------------------
 # 自选股管理
 # ------------------------------------------------------------------
 from stock_screener.watchlist import WatchlistManager

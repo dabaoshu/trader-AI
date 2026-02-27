@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { fetchAnalysisRules, analyzeStock } from '../api'
 import type { AnalysisRule, AnalysisReport, RuleResult } from '../types'
 import ToastNotify from '../components/ToastNotify.vue'
 import AddToWatchlist from '../components/AddToWatchlist.vue'
+
+const route = useRoute()
 
 const rules = ref<AnalysisRule[]>([])
 const selectedRules = ref<string[]>([])
@@ -90,7 +93,14 @@ function toggleRule(id: string) {
   else selectedRules.value.push(id)
 }
 
-onMounted(loadRules)
+onMounted(async () => {
+  await loadRules()
+  const code = route.query.code as string | undefined
+  if (code) {
+    stockCode.value = code
+    doAnalyze()
+  }
+})
 </script>
 
 <template>
