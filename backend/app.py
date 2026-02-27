@@ -1091,6 +1091,89 @@ def get_stock_analysis_detail(symbol):
         })
 
 # ------------------------------------------------------------------
+# AI 模型管理
+# ------------------------------------------------------------------
+from stock_screener.analyzer.ai_model import get_ai_model_manager
+
+
+@app.route('/api/models/providers', methods=['GET'])
+def api_models_list():
+    """获取所有模型提供商"""
+    mgr = get_ai_model_manager()
+    return jsonify({
+        'success': True,
+        'data': {
+            'providers': mgr.list_providers(),
+            'default_provider_id': mgr._cfg.get('default_provider_id', ''),
+        }
+    })
+
+
+@app.route('/api/models/providers', methods=['POST'])
+def api_models_add():
+    """添加模型提供商"""
+    mgr = get_ai_model_manager()
+    data = request.json or {}
+    provider = mgr.add_provider(data)
+    return jsonify({'success': True, 'data': provider})
+
+
+@app.route('/api/models/providers/<provider_id>', methods=['PUT'])
+def api_models_update(provider_id):
+    """更新模型提供商"""
+    mgr = get_ai_model_manager()
+    data = request.json or {}
+    provider = mgr.update_provider(provider_id, data)
+    if provider:
+        return jsonify({'success': True, 'data': provider})
+    return jsonify({'success': False, 'message': '提供商不存在'})
+
+
+@app.route('/api/models/providers/<provider_id>', methods=['DELETE'])
+def api_models_delete(provider_id):
+    """删除模型提供商"""
+    mgr = get_ai_model_manager()
+    ok = mgr.delete_provider(provider_id)
+    return jsonify({'success': ok, 'message': '已删除' if ok else '删除失败'})
+
+
+@app.route('/api/models/providers/<provider_id>/default', methods=['POST'])
+def api_models_set_default(provider_id):
+    """设为默认提供商"""
+    mgr = get_ai_model_manager()
+    mgr.set_default_provider(provider_id)
+    return jsonify({'success': True})
+
+
+@app.route('/api/models/providers/<provider_id>/test', methods=['POST'])
+def api_models_test(provider_id):
+    """测试提供商连通性"""
+    mgr = get_ai_model_manager()
+    result = mgr.test_provider(provider_id)
+    return jsonify(result)
+
+
+@app.route('/api/models/callers', methods=['GET'])
+def api_models_callers():
+    """获取所有调用者及其绑定"""
+    mgr = get_ai_model_manager()
+    return jsonify({'success': True, 'data': mgr.get_caller_list()})
+
+
+@app.route('/api/models/callers/<caller_id>', methods=['PUT'])
+def api_models_set_caller(caller_id):
+    """设置调用者的模型绑定"""
+    mgr = get_ai_model_manager()
+    data = request.json or {}
+    pid = data.get('provider_id', '')
+    if pid:
+        mgr.set_caller_provider(caller_id, pid)
+    else:
+        mgr.remove_caller_mapping(caller_id)
+    return jsonify({'success': True})
+
+
+# ------------------------------------------------------------------
 # 股票分析引擎 (可动态加载规则)
 # ------------------------------------------------------------------
 from stock_screener.analyzer.engine import StockAnalysisEngine

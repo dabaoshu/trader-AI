@@ -106,6 +106,26 @@ export interface OpOption {
   label: string
 }
 
+// ---- AI Model types ----
+
+/** AI 模型提供商 */
+export interface AIProvider {
+  id: string
+  name: string
+  base_url: string
+  model_id: string
+  api_key: string
+  enabled: boolean
+  created_at: string
+}
+
+/** 调用者映射项 */
+export interface CallerItem {
+  caller_id: string
+  label: string
+  provider_id: string
+}
+
 // ---- Analyzer types ----
 
 /** 分析规则元信息 */

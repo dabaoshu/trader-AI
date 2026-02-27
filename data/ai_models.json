@@ -1,0 +1,15 @@
+{
+  "providers": [
+    {
+      "id": "provider-1772185969",
+      "name": "MiniMax",
+      "base_url": "https://api.minimaxi.com/v1",
+      "model_id": "MiniMax-M2.5",
+      "api_key": "test-key-123",
+      "enabled": true,
+      "created_at": "2026-02-27 09:52:49"
+    }
+  ],
+  "caller_mapping": {},
+  "default_provider_id": "provider-1772185969"
+}

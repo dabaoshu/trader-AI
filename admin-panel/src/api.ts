@@ -6,6 +6,8 @@ import type {
   ScreenerConditions,
   AnalysisRule,
   AnalysisReport,
+  AIProvider,
+  CallerItem,
 } from './types'
 
 const BASE = '/api/screener'
@@ -59,5 +61,47 @@ export async function analyzeStock(payload: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+  return res.json()
+}
+
+// ---- AI Model Management ----
+
+export async function fetchProviders(): Promise<ApiResponse<{ providers: AIProvider[]; default_provider_id: string }>> {
+  const res = await fetch('/api/models/providers')
+  return res.json()
+}
+
+export async function addProvider(data: Partial<AIProvider>): Promise<ApiResponse<AIProvider>> {
+  const res = await fetch('/api/models/providers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  return res.json()
+}
+
+export async function updateProvider(id: string, data: Partial<AIProvider>): Promise<ApiResponse<AIProvider>> {
+  const res = await fetch(`/api/models/providers/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  return res.json()
+}
+
+export async function deleteProvider(id: string): Promise<ApiResponse> {
+  const res = await fetch(`/api/models/providers/${id}`, { method: 'DELETE' })
+  return res.json()
+}
+
+export async function setDefaultProvider(id: string): Promise<ApiResponse> {
+  const res = await fetch(`/api/models/providers/${id}/default`, { method: 'POST' })
+  return res.json()
+}
+
+export async function testProvider(id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`/api/models/providers/${id}/test`, { method: 'POST' })
+  return res.json()
+}
+
+export async function fetchCallers(): Promise<ApiResponse<CallerItem[]>> {
+  const res = await fetch('/api/models/callers')
+  return res.json()
+}
+
+export async function setCallerProvider(callerId: string, providerId: string): Promise<ApiResponse> {
+  const res = await fetch(`/api/models/callers/${callerId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider_id: providerId }) })
   return res.json()
 }
