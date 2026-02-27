@@ -8,8 +8,19 @@
       "api_key": "test-key-123",
       "enabled": true,
       "created_at": "2026-02-27 09:52:49"
+    },
+    {
+      "id": "provider-1772186296",
+      "name": "MiniMax",
+      "base_url": "https://api.minimaxi.com/v1",
+      "model_id": "MiniMax-M2.5",
+      "api_key": "sk-test-demo-key-12345",
+      "enabled": true,
+      "created_at": "2026-02-27 09:58:16"
     }
   ],
-  "caller_mapping": {},
+  "caller_mapping": {
+    "deep_analysis": "provider-1772185969"
+  },
   "default_provider_id": "provider-1772185969"
 }

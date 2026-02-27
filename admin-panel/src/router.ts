@@ -23,6 +23,11 @@ const router = createRouter({
       component: () => import('./views/AnalyzerView.vue'),
     },
     {
+      path: '/watchlist',
+      name: 'Watchlist',
+      component: () => import('./views/WatchlistView.vue'),
+    },
+    {
       path: '/models',
       name: 'Models',
       component: () => import('./views/ModelsView.vue'),

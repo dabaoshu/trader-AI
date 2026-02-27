@@ -3,6 +3,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { fetchPresets, runScreener, fetchRecords, fetchRecordDetail, deleteRecord as apiDelete } from '../api'
 import type { PresetTemplate, ScreenerConditions, CustomRule, StockItem, ScreenerRecord, FieldOption, OpOption } from '../types'
 import ToastNotify from '../components/ToastNotify.vue'
+import AddToWatchlist from '../components/AddToWatchlist.vue'
 
 const FIELD_OPTIONS: FieldOption[] = [
   { value: 'current_price', label: '当前价格' },
@@ -399,6 +400,7 @@ onMounted(async () => {
                 <th class="p-3 font-semibold text-gray-600">竞价涨幅</th>
                 <th class="p-3 font-semibold text-gray-600">信心</th>
                 <th class="p-3 font-semibold text-gray-600">策略</th>
+                <th class="p-3 font-semibold text-gray-600">自选</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -411,6 +413,7 @@ onMounted(async () => {
                 <td class="p-3" :class="(s.auction_ratio ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'">{{ (s.auction_ratio ?? 0) >= 0 ? '+' : '' }}{{ (s.auction_ratio ?? 0).toFixed(1) }}%</td>
                 <td class="p-3"><span class="text-xs px-2 py-0.5 rounded" :class="confidenceCls(s.confidence)">{{ confidenceTag(s.confidence) }}</span></td>
                 <td class="p-3 max-w-xs"><p class="text-xs text-gray-600 truncate">{{ s.strategy }}</p></td>
+                <td class="p-3"><AddToWatchlist :symbol="s.symbol" :stock-name="s.stock_name" :market="s.market" /></td>
               </tr>
             </tbody>
           </table>

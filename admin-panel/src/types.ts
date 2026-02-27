@@ -106,6 +106,28 @@ export interface OpOption {
   label: string
 }
 
+// ---- Watchlist types ----
+
+/** 自选股分组 */
+export interface WatchlistGroup {
+  id: number
+  name: string
+  sort_order: number
+  stock_count: number
+  created_at?: string
+}
+
+/** 自选股票 */
+export interface WatchlistStock {
+  id: number
+  group_id: number
+  symbol: string
+  stock_name: string
+  market: string
+  note: string
+  added_at: string
+}
+
 // ---- AI Model types ----
 
 /** AI 模型提供商 */

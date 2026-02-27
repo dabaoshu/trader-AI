@@ -8,6 +8,8 @@ import type {
   AnalysisReport,
   AIProvider,
   CallerItem,
+  WatchlistGroup,
+  WatchlistStock,
 } from './types'
 
 const BASE = '/api/screener'
@@ -103,5 +105,42 @@ export async function fetchCallers(): Promise<ApiResponse<CallerItem[]>> {
 
 export async function setCallerProvider(callerId: string, providerId: string): Promise<ApiResponse> {
   const res = await fetch(`/api/models/callers/${callerId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider_id: providerId }) })
+  return res.json()
+}
+
+// ---- Watchlist API ----
+
+export async function fetchWatchlistGroups(): Promise<ApiResponse<WatchlistGroup[]>> {
+  const res = await fetch('/api/watchlist/groups')
+  return res.json()
+}
+
+export async function addWatchlistGroup(name: string): Promise<ApiResponse<WatchlistGroup>> {
+  const res = await fetch('/api/watchlist/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
+  return res.json()
+}
+
+export async function renameWatchlistGroup(id: number, name: string): Promise<ApiResponse> {
+  const res = await fetch(`/api/watchlist/groups/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
+  return res.json()
+}
+
+export async function deleteWatchlistGroup(id: number): Promise<ApiResponse> {
+  const res = await fetch(`/api/watchlist/groups/${id}`, { method: 'DELETE' })
+  return res.json()
+}
+
+export async function fetchWatchlistStocks(groupId: number): Promise<ApiResponse<WatchlistStock[]>> {
+  const res = await fetch(`/api/watchlist/groups/${groupId}/stocks`)
+  return res.json()
+}
+
+export async function addWatchlistStock(groupId: number, data: { symbol: string; stock_name?: string; market?: string }): Promise<ApiResponse<WatchlistStock>> {
+  const res = await fetch(`/api/watchlist/groups/${groupId}/stocks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  return res.json()
+}
+
+export async function removeWatchlistStock(stockId: number): Promise<ApiResponse> {
+  const res = await fetch(`/api/watchlist/stocks/${stockId}`, { method: 'DELETE' })
   return res.json()
 }

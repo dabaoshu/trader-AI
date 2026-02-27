@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { fetchAnalysisRules, analyzeStock } from '../api'
 import type { AnalysisRule, AnalysisReport, RuleResult } from '../types'
 import ToastNotify from '../components/ToastNotify.vue'
+import AddToWatchlist from '../components/AddToWatchlist.vue'
 
 const rules = ref<AnalysisRule[]>([])
 const selectedRules = ref<string[]>([])
@@ -185,6 +186,7 @@ onMounted(loadRules)
             <span class="inline-block text-sm font-medium px-4 py-1.5 rounded-full border" :class="recBadge(report.recommendation)">
               {{ report.recommendation }}
             </span>
+            <AddToWatchlist :symbol="report.stock_code" :stock-name="report.stock_name" :market="report.market_label" />
           </div>
         </div>
 

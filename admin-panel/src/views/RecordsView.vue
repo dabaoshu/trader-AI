@@ -9,6 +9,7 @@ import {
 } from '../api'
 import type { ScreenerRecord, PresetTemplate, ScreenerConditions } from '../types'
 import ToastNotify from '../components/ToastNotify.vue'
+import AddToWatchlist from '../components/AddToWatchlist.vue'
 
 const records = ref<ScreenerRecord[]>([])
 const presets = ref<PresetTemplate[]>([])
@@ -231,6 +232,7 @@ onMounted(() => {
               <div class="flex items-center gap-2">
                 <span class="font-semibold">¥{{ (s.current_price ?? 0).toFixed(2) }}</span>
                 <span class="px-1.5 py-0.5 rounded text-xs" :class="confidenceColor(s.confidence)">{{ confidenceTag(s.confidence) }}</span>
+                <AddToWatchlist :symbol="s.symbol" :stock-name="s.stock_name" :market="s.market || ''" />
               </div>
             </div>
             <div v-if="!(detail!.result_data || []).length" class="text-center text-gray-400 py-4">

@@ -1323,6 +1323,70 @@ def api_screener_record_delete(record_id):
     return jsonify({'success': False, 'message': '删除失败，记录可能不存在'})
 
 
+# ------------------------------------------------------------------
+# 自选股管理
+# ------------------------------------------------------------------
+from stock_screener.watchlist import WatchlistManager
+
+_watchlist_mgr = WatchlistManager()
+
+
+@app.route('/api/watchlist/groups', methods=['GET'])
+def api_watchlist_groups():
+    """获取所有自选股分组"""
+    return jsonify({'success': True, 'data': _watchlist_mgr.list_groups()})
+
+
+@app.route('/api/watchlist/groups', methods=['POST'])
+def api_watchlist_add_group():
+    """新建分组"""
+    name = (request.json or {}).get('name', '').strip() or '新分组'
+    g = _watchlist_mgr.add_group(name)
+    return jsonify({'success': True, 'data': g})
+
+
+@app.route('/api/watchlist/groups/<int:gid>', methods=['PUT'])
+def api_watchlist_rename_group(gid):
+    """重命名分组"""
+    name = (request.json or {}).get('name', '').strip()
+    if not name:
+        return jsonify({'success': False, 'message': '名称不能为空'})
+    ok = _watchlist_mgr.rename_group(gid, name)
+    return jsonify({'success': ok})
+
+
+@app.route('/api/watchlist/groups/<int:gid>', methods=['DELETE'])
+def api_watchlist_delete_group(gid):
+    """删除分组"""
+    ok = _watchlist_mgr.delete_group(gid)
+    return jsonify({'success': ok})
+
+
+@app.route('/api/watchlist/groups/<int:gid>/stocks', methods=['GET'])
+def api_watchlist_stocks(gid):
+    """获取分组内股票"""
+    return jsonify({'success': True, 'data': _watchlist_mgr.list_stocks(gid)})
+
+
+@app.route('/api/watchlist/groups/<int:gid>/stocks', methods=['POST'])
+def api_watchlist_add_stock(gid):
+    """添加股票到分组"""
+    d = request.json or {}
+    result = _watchlist_mgr.add_stock(
+        gid, d.get('symbol', ''), d.get('stock_name', ''),
+        d.get('market', ''), d.get('note', ''))
+    if 'error' in result:
+        return jsonify({'success': False, 'message': result['message']})
+    return jsonify({'success': True, 'data': result})
+
+
+@app.route('/api/watchlist/stocks/<int:sid>', methods=['DELETE'])
+def api_watchlist_remove_stock(sid):
+    """删除股票"""
+    ok = _watchlist_mgr.remove_stock(sid)
+    return jsonify({'success': ok})
+
+
 @app.route("/health")
 def health():
     """健康检查端点"""
