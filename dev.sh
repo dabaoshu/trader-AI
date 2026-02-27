@@ -69,7 +69,7 @@ start_backend() {
 
     cd "$ROOT_DIR"
     export PYTHONPATH="$ROOT_DIR"
-    python3 backend/app.py > "$ROOT_DIR/data/flask.log" 2>&1 &
+    python3 backend/app.py > >(tee -a "$ROOT_DIR/data/flask.log") 2>&1 &
     local pid=$!
     echo "$pid" > "$pid_file"
 
@@ -96,7 +96,7 @@ start_frontend() {
     log_step "启动 Vue 管理后台 (端口 $VITE_PORT)..."
 
     cd "$ROOT_DIR/admin-panel"
-    npx vite --host 0.0.0.0 --port "$VITE_PORT" > "$ROOT_DIR/data/vite.log" 2>&1 &
+    npx vite --host 0.0.0.0 --port "$VITE_PORT" > >(tee -a "$ROOT_DIR/data/vite.log") 2>&1 &
     local pid=$!
     echo "$pid" > "$pid_file"
 
@@ -184,6 +184,23 @@ do_start_all() {
     echo "  停止服务:  ./dev.sh stop"
     echo "  查看状态:  ./dev.sh status"
     echo ""
+
+    # 保持脚本常驻，便于在部署或前台查看日志时使用
+    # 按 Ctrl+C 将触发优雅停止
+    trap 'echo ""; log_step "收到退出信号，正在停止所有服务..."; do_stop; exit 0' INT TERM
+
+    log_step "脚本将保持运行，按 Ctrl+C 可停止所有服务。"
+
+    # 简单健康检查循环：如果核心后端进程退出，则一起退出
+    while true; do
+        sleep 30
+        if [ -f "$PID_DIR/flask.pid" ]; then
+            if ! kill -0 "$(cat "$PID_DIR/flask.pid")" 2>/dev/null; then
+                log_error "检测到 Flask 后端已退出，dev.sh 也将退出。"
+                exit 1
+            fi
+        fi
+    done
 }
 
 # ----------------------------------------------------------
