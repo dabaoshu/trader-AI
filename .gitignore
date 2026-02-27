@@ -68,4 +68,4 @@ web_app.log
 # Sunlogin
 Sunlogin/
 Sunlogin Files/
-protocol_config.conf
+protocol_config.conf.pids/
