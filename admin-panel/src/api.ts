@@ -4,6 +4,8 @@ import type {
   PresetTemplate,
   RunScreenerData,
   ScreenerConditions,
+  AnalysisRule,
+  AnalysisReport,
 } from './types'
 
 const BASE = '/api/screener'
@@ -34,6 +36,25 @@ export async function runScreener(payload: {
   preset_key?: string
 }): Promise<ApiResponse<RunScreenerData>> {
   const res = await fetch(`${BASE}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return res.json()
+}
+
+// ---- Analyzer API ----
+
+export async function fetchAnalysisRules(): Promise<ApiResponse<AnalysisRule[]>> {
+  const res = await fetch('/api/analyzer/rules')
+  return res.json()
+}
+
+export async function analyzeStock(payload: {
+  stock_code: string
+  rule_ids?: string[]
+}): Promise<ApiResponse<AnalysisReport>> {
+  const res = await fetch('/api/analyzer/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

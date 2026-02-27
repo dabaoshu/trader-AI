@@ -17,6 +17,11 @@ const router = createRouter({
       name: 'Screener',
       component: () => import('./views/ScreenerView.vue'),
     },
+    {
+      path: '/analyzer',
+      name: 'Analyzer',
+      component: () => import('./views/AnalyzerView.vue'),
+    },
   ],
 })
 

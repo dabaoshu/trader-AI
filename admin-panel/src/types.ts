@@ -105,3 +105,42 @@ export interface OpOption {
   value: CustomRule['op']
   label: string
 }
+
+// ---- Analyzer types ----
+
+/** 分析规则元信息 */
+export interface AnalysisRule {
+  rule_id: string
+  name: string
+  description: string
+  weight: number
+}
+
+/** 单条规则结果 */
+export interface RuleResult {
+  name: string
+  score: number
+  weight: number
+  details: string
+}
+
+/** 分析报告 */
+export interface AnalysisReport {
+  stock_code: string
+  stock_name: string
+  market: string
+  market_label: string
+  currency: string
+  analysis_date: string
+  price_info: {
+    current_price: number
+    price_change: number
+    volume_ratio: number
+  }
+  technical: Record<string, unknown>
+  rule_results: Record<string, RuleResult>
+  comprehensive_score: number
+  recommendation: string
+  active_rules: string[]
+  error?: string
+}

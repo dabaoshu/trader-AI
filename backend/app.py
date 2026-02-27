@@ -1091,6 +1091,40 @@ def get_stock_analysis_detail(symbol):
         })
 
 # ------------------------------------------------------------------
+# 股票分析引擎 (可动态加载规则)
+# ------------------------------------------------------------------
+from stock_screener.analyzer.engine import StockAnalysisEngine
+
+_analysis_engine = StockAnalysisEngine()
+_analysis_engine.load_rules()
+
+
+@app.route('/api/analyzer/rules', methods=['GET'])
+def api_analyzer_rules():
+    """获取所有已加载的分析规则"""
+    return jsonify({'success': True, 'data': _analysis_engine.get_all_rules()})
+
+
+@app.route('/api/analyzer/analyze', methods=['POST'])
+def api_analyzer_analyze():
+    """执行股票分析"""
+    try:
+        payload = request.json or {}
+        stock_code = payload.get('stock_code', '').strip()
+        rule_ids = payload.get('rule_ids')
+
+        if not stock_code:
+            return jsonify({'success': False, 'message': '请输入股票代码'})
+
+        report = _analysis_engine.analyze(stock_code, rule_ids=rule_ids)
+        return jsonify({'success': True, 'data': report})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'分析失败: {str(e)}'})
+
+
+# ------------------------------------------------------------------
 # 条件选股模块 (同花顺风格)
 # ------------------------------------------------------------------
 screener_record_mgr = ScreenerRecordManager()
