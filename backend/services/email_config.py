@@ -149,7 +149,7 @@ class EmailSender:
     
     def send_daily_report(self, report_data: dict) -> bool:
         """发送交易日报"""
-        subject = f"📊 CChanTrader-AI 交易日报 - {report_data.get('date', datetime.now().strftime('%Y-%m-%d'))}"
+        subject = f"📊 智能选股助手 交易日报 - {report_data.get('date', datetime.now().strftime('%Y-%m-%d'))}"
         
         html_content = self._generate_report_html(report_data)
         
@@ -175,95 +175,7 @@ class EmailSender:
         volume_surge_count = len([r for r in recommendations if r.get('volume_surge', False)])
         market_cap_fit_count = len([r for r in recommendations if 40 <= r.get('market_cap_billion', 0) <= 200])
         
-        # 读取增强的专业模板文件
-        template_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'backend', 'email_template_enhanced.html')
-        try:
-            with open(template_path, 'r', encoding='utf-8') as f:
-                template_content = f.read()
-        except FileNotFoundError:
-            # 如果增强模板不存在，尝试使用旧模板
-            old_template_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend', 'templates', 'email_template.html')
-            try:
-                with open(old_template_path, 'r', encoding='utf-8') as f:
-                    template_content = f.read()
-            except FileNotFoundError:
-                # 如果都不存在，使用简化版本
-                return self._generate_fallback_html(data)
-        
-        # 简单的模板变量替换
-        html_content = template_content
-        
-        # 替换基本变量
-        html_content = html_content.replace('{{date}}', data.get('date', datetime.now().strftime('%Y-%m-%d')))
-        html_content = html_content.replace('{{analysis_time}}', data.get('analysis_time', datetime.now().strftime('%H:%M:%S')))
-        html_content = html_content.replace('{{total_analyzed}}', str(market_summary.get('total_analyzed', 4500)))
-        html_content = html_content.replace('{{recommendations|length}}', str(len(recommendations)))
-        html_content = html_content.replace('{{high_confidence_count}}', str(high_confidence_count))
-        html_content = html_content.replace('{{avg_score|round(3)}}', str(round(market_summary.get('avg_score', 0.65), 3)))
-        
-        # 生成股票卡片HTML
-        stock_cards_html = ""
-        for stock in recommendations:
-            confidence_text = "强烈推荐" if stock.get('confidence') == 'very_high' else ("推荐" if stock.get('confidence') == 'high' else "关注")
-            confidence_class = stock.get('confidence', 'medium').replace('_', '-')
-            
-            stock_card = f"""
-            <div class="stock-card {confidence_class}">
-                <div class="stock-header">
-                    <div class="stock-basic">
-                        <div class="stock-symbol">{stock.get('symbol', '')}</div>
-                        <div class="stock-name">{stock.get('stock_name', '')}</div>
-                        <span class="market-badge">{stock.get('market', '')}</span>
-                    </div>
-                    <div class="confidence-badge confidence-{confidence_class}">
-                        {confidence_text}
-                    </div>
-                </div>
-                
-                <div class="stock-metrics">
-                    <div class="metric">
-                        <div class="metric-value">{round(stock.get('total_score', 0) * 100, 1)}%</div>
-                        <div class="metric-label">综合评分</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value">{round(stock.get('auction_ratio', 0), 1)}</div>
-                        <div class="metric-label">竞价倍数</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value">{round(stock.get('market_cap_billion', 100), 0)}亿</div>
-                        <div class="metric-label">市值</div>
-                    </div>
-                </div>
-                
-                <div class="price-info">
-                    <div class="price-item current-price">
-                        <div style="font-weight: 600;">¥{stock.get('current_price', 0)}</div>
-                        <div style="font-size: 10px;">现价</div>
-                    </div>
-                    <div class="price-item entry-price">
-                        <div style="font-weight: 600;">¥{stock.get('entry_price', 0)}</div>
-                        <div style="font-size: 10px;">建议入场</div>
-                    </div>
-                    <div class="price-item target-price">
-                        <div style="font-weight: 600;">¥{stock.get('target_price', 0)}</div>
-                        <div style="font-size: 10px;">目标价</div>
-                    </div>
-                </div>
-                
-                <div class="strategy-info">
-                    <strong>策略分析：</strong>{stock.get('strategy', '暂无策略说明')}
-                </div>
-            </div>
-            """
-            stock_cards_html += stock_card
-        
-        # 替换股票列表
-        # 找到并替换股票循环部分
-        import re
-        stock_loop_pattern = r'{%\s*for\s+stock\s+in\s+recommendations\s*%}.*?{%\s*endfor\s*%}'
-        html_content = re.sub(stock_loop_pattern, stock_cards_html, html_content, flags=re.DOTALL)
-        
-        return html_content
+        return self._generate_fallback_html(data)
     
     def _generate_fallback_html(self, data: dict) -> str:
         """生成简化版HTML邮件内容 - 作为模板文件不存在时的后备方案"""
@@ -276,7 +188,7 @@ class EmailSender:
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>CChanTrader-AI 交易日报</title>
+    <title>智能选股助手 交易日报</title>
     <style>
         body {{ font-family: Inter, -apple-system, sans-serif; background: #FAFAFA; margin: 0; padding: 20px; }}
         .container {{ max-width: 800px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
@@ -292,7 +204,7 @@ class EmailSender:
 <body>
     <div class="container">
         <div class="header">
-            <h1>📊 CChanTrader-AI 智能交易日报</h1>
+            <h1>📊 智能选股助手 交易日报</h1>
             <p>{data.get('date', datetime.now().strftime('%Y-%m-%d'))}</p>
         </div>
         <div class="content">
@@ -305,7 +217,7 @@ class EmailSender:
             </div>
         </div>
         <div class="footer">
-            <p>CChanTrader-AI • 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            <p>智能选股助手 • 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         </div>
     </div>
 </body>
@@ -325,7 +237,7 @@ class EmailSender:
     
     def test_email_connection(self) -> bool:
         """测试邮件连接 - 仅发送给测试邮箱"""
-        test_subject = "📧 CChanTrader-AI 邮件测试"
+        test_subject = "📧 智能选股助手 邮件测试"
         
         # 生成完整的测试报告
         test_report_data = self._generate_test_report_data()
@@ -442,7 +354,7 @@ class EmailSender:
 def create_email_env_example():
     """创建环境变量配置示例"""
     env_example = """
-# CChanTrader-AI 邮件配置
+# 智能选股助手 邮件配置
 # 请根据您的邮箱服务商配置以下参数
 
 # 发送邮箱 (您的邮箱地址)

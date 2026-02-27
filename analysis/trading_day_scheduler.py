@@ -11,7 +11,7 @@ import threading
 from datetime import datetime, timedelta
 import logging
 import os
-from daily_report_generator import DailyReportGenerator
+from backend.daily_report_generator import DailyReportGenerator
 
 # 配置日志
 log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
