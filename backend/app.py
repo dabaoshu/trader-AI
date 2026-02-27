@@ -1456,6 +1456,22 @@ def api_watchlist_remove_stock(sid):
     return jsonify({'success': ok})
 
 
+@app.route('/api/watchlist/quotes', methods=['POST'])
+def api_watchlist_quotes():
+    """批量获取自选股实时行情"""
+    try:
+        from stock_screener.realtime_quote import fetch_realtime_quotes
+        symbols = (request.json or {}).get('symbols', [])
+        if not symbols:
+            return jsonify({'success': True, 'data': {}})
+        quotes = fetch_realtime_quotes(symbols)
+        return jsonify({'success': True, 'data': quotes})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)})
+
+
 @app.route("/health")
 def health():
     """健康检查端点"""

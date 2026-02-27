@@ -10,6 +10,7 @@ import type {
   CallerItem,
   WatchlistGroup,
   WatchlistStock,
+  RealtimeQuote,
 } from './types'
 
 const BASE = '/api/screener'
@@ -142,5 +143,10 @@ export async function addWatchlistStock(groupId: number, data: { symbol: string;
 
 export async function removeWatchlistStock(stockId: number): Promise<ApiResponse> {
   const res = await fetch(`/api/watchlist/stocks/${stockId}`, { method: 'DELETE' })
+  return res.json()
+}
+
+export async function fetchRealtimeQuotes(symbols: string[]): Promise<ApiResponse<Record<string, RealtimeQuote>>> {
+  const res = await fetch('/api/watchlist/quotes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols }) })
   return res.json()
 }

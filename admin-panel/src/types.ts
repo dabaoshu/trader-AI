@@ -128,6 +128,28 @@ export interface WatchlistStock {
   added_at: string
 }
 
+/** 实时行情数据 */
+export interface RealtimeQuote {
+  symbol: string
+  name: string
+  current_price: number
+  change_pct: number
+  change_amount: number
+  pe_ratio: number
+  pb_ratio: number
+  volume: number
+  turnover: number
+  turnover_rate: number
+  volume_ratio: number
+  high: number
+  low: number
+  open: number
+  prev_close: number
+  total_market_cap: number
+  circulating_market_cap: number
+  updated_at: string
+}
+
 // ---- AI Model types ----
 
 /** AI 模型提供商 */
