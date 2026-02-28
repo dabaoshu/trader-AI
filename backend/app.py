@@ -285,6 +285,36 @@ def api_daily_analysis_queue():
     return jsonify({'success': True, 'data': {'tasks': tasks}})
 
 
+@app.route('/api/daily/from_screener', methods=['POST'])
+def api_daily_from_screener():
+    """将条件选股记录的结果设为今日推荐"""
+    try:
+        d = request.json or {}
+        record_id = d.get('record_id')
+        if not record_id:
+            return jsonify({'success': False, 'message': '请指定 record_id'})
+        target_date = d.get('date', datetime.now().strftime('%Y-%m-%d'))
+
+        record = screener_record_mgr.get_record_by_id(int(record_id))
+        if not record:
+            return jsonify({'success': False, 'message': '选股记录不存在'})
+
+        result_data = record.get('result_data') or []
+        if not result_data:
+            return jsonify({'success': False, 'message': '该记录无筛选结果'})
+
+        web_manager.save_recommendations(result_data, target_date)
+        return jsonify({
+            'success': True,
+            'message': f'已从「{record.get("name", "")}」导入 {len(result_data)} 只股票为 {target_date} 推荐',
+            'data': {'count': len(result_data), 'date': target_date},
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)})
+
+
 @app.route('/api/daily/update_status', methods=['POST'])
 def api_daily_update_status():
     try:

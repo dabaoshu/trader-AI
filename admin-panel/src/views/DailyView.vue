@@ -43,6 +43,9 @@ const loading = ref(false)
 const analyzing = ref(false)
 const toast = ref({ show: false, msg: '', type: 'info' })
 const analysisQueue = ref<AnalysisTask[]>([])
+const screenerRecords = ref<{ id: number; name: string; result_count: number; created_at: string }[]>([])
+const applyingFromScreener = ref(false)
+const showScreenerImport = ref(false)
 let queuePollTimer: ReturnType<typeof setInterval> | null = null
 
 function notify(msg: string, type = 'info') {
@@ -142,6 +145,37 @@ async function onTaskCompleted() {
   await loadStatus()
 }
 
+/** 加载条件选股记录 */
+async function loadScreenerRecords() {
+  try {
+    const res = await fetch('/api/screener/records?limit=15')
+    const data: ApiResponse<Array<{ id: number; name: string; result_count: number; created_at: string }>> = await res.json()
+    if (data.success) screenerRecords.value = data.data ?? []
+  } catch { /* ignore */ }
+}
+
+/** 从条件选股记录设为今日推荐 */
+async function applyFromScreener(recordId: number) {
+  applyingFromScreener.value = true
+  try {
+    const res = await fetch('/api/daily/from_screener', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record_id: recordId, date: dateFilter.value }),
+    })
+    const data = await res.json()
+    if (data.success) {
+      notify(data.message, 'success')
+      await loadRecommendations()
+      await loadStatus()
+    } else {
+      notify(data.message || '导入失败', 'error')
+    }
+  } finally {
+    applyingFromScreener.value = false
+  }
+}
+
 async function updateStockStatus(stockId: number, newStatus: string) {
   await fetch('/api/daily/update_status', {
     method: 'POST',
@@ -185,7 +219,7 @@ function taskStatusCls(s: string) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadStatus(), loadRecommendations(), loadAnalysisQueue()])
+  await Promise.all([loadStatus(), loadRecommendations(), loadAnalysisQueue(), loadScreenerRecords()])
   if (hasRunningTask.value) startQueuePolling()
 })
 
@@ -270,6 +304,37 @@ onUnmounted(() => {
           </div>
           <div v-if="t.status === 'failed' && t.error" class="text-xs text-red-600">{{ t.error }}</div>
         </div>
+      </div>
+    </div>
+
+    <!-- 从条件选股导入 -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <button @click="showScreenerImport = !showScreenerImport"
+              class="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition">
+        <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <span>📋</span> 从条件选股导入
+        </h3>
+        <span class="text-xs text-gray-400">{{ showScreenerImport ? '收起' : '展开' }}</span>
+      </button>
+      <div v-show="showScreenerImport" class="border-t border-gray-100 px-5 py-4">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-xs text-gray-500">将条件选股结果设为当前选中日期的推荐</p>
+          <button @click="loadScreenerRecords()" class="text-xs text-indigo-600 hover:text-indigo-700">刷新</button>
+        </div>
+        <div v-if="screenerRecords.length" class="space-y-2 max-h-48 overflow-y-auto">
+          <div v-for="r in screenerRecords" :key="r.id"
+               class="flex items-center justify-between gap-3 py-2 px-3 rounded-lg bg-gray-50 hover:bg-gray-100">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium text-gray-800 truncate">{{ r.name }}</div>
+              <div class="text-xs text-gray-500">{{ r.result_count }} 只 · {{ r.created_at }}</div>
+            </div>
+            <button @click="applyFromScreener(r.id)" :disabled="applyingFromScreener"
+                    class="shrink-0 text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+              导入为推荐
+            </button>
+          </div>
+        </div>
+        <div v-else class="text-xs text-gray-400 py-4">暂无选股记录，请先在「条件选股」中运行筛选</div>
       </div>
     </div>
 
