@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CChanTrader-AI 邮件配置系统
+trader-AI 邮件配置系统
 支持多种邮件服务商的自动发送
 """
 

@@ -7,7 +7,7 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  CChanTrader-AI 一键开发启动" -ForegroundColor Cyan
+Write-Host "  trader-AI 一键开发启动" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 

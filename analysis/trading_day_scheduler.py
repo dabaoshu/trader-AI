@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CChanTrader-AI 交易日定时调度器
+trader-AI 交易日定时调度器
 在每个交易日9:25-9:29时间段自动执行分析并发送日报
 """
 
@@ -39,7 +39,7 @@ class TradingDayScheduler:
         # 创建锁防止重复执行
         self.execution_lock = threading.Lock()
         
-        logging.info("📅 CChanTrader-AI 交易日调度器已初始化")
+        logging.info("📅 trader-AI 交易日调度器已初始化")
     
     def is_trading_time(self) -> bool:
         """检查是否为交易时间"""
@@ -244,7 +244,7 @@ class SchedulerDaemon:
 def create_startup_script():
     """创建启动脚本"""
     script_content = f"""#!/bin/bash
-# CChanTrader-AI 交易日调度器启动脚本
+# trader-AI 交易日调度器启动脚本
 
 cd /app
 export PYTHONPATH=/app:$PYTHONPATH
@@ -252,7 +252,7 @@ export PYTHONPATH=/app:$PYTHONPATH
 # 启动调度器
 python3 trading_day_scheduler.py --daemon
 
-echo "📅 CChanTrader-AI 交易日调度器已启动"
+echo "📅 trader-AI 交易日调度器已启动"
 echo "📝 日志文件: /app/data/trading_scheduler.log"
 echo "🛑 停止命令: python3 trading_day_scheduler.py --stop"
 """
@@ -270,7 +270,7 @@ def main():
     """主函数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='CChanTrader-AI 交易日调度器')
+    parser = argparse.ArgumentParser(description='trader-AI 交易日调度器')
     parser.add_argument('--daemon', action='store_true', help='守护进程模式')
     parser.add_argument('--test', action='store_true', help='测试模式')
     parser.add_argument('--status', action='store_true', help='查看状态')

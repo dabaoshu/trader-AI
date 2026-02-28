@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CChanTrader-AI 深度股票分析引擎
+trader-AI 深度股票分析引擎
 集成LLM进行专业股票投研分析
 """
 

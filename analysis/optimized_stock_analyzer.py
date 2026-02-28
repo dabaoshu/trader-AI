@@ -648,7 +648,7 @@ class OptimizedStockAnalyzer:
                 'gap_down_count': len([r for r in final_recommendations if 'gap_down' in r.get('gap_type', '')])
             }
             
-            # >>> CChanTrader-AI Explain Patch
+            # >>> trader-AI Explain Patch
             # 为每只推荐股票生成自然语言解释
             try:
                 from explain_generator import generate_explain

@@ -1,4 +1,4 @@
-# >>> CChanTrader-AI Explain Patch
+# >>> trader-AI Explain Patch
 """
 股票推荐解释生成器
 为选股结果生成自然语言说明，包含买卖点、止损止盈、选中原因、预期收益等

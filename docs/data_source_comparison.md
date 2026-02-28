@@ -131,7 +131,7 @@ class AKShareDataProvider:
 
 ---
 
-## 🔧 CChanTrader-AI 升级建议
+## 🔧 trader-AI 升级建议
 
 ### Phase 1: 修复当前问题 (1天)
 1. ✅ 修正BaoStock股票筛选条件

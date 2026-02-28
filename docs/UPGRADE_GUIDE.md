@@ -1,4 +1,4 @@
-# 🚀 CChanTrader-AI 现代化界面升级指南
+# 🚀 trader-AI 现代化界面升级指南
 
 ## ✨ 升级亮点
 
@@ -154,6 +154,6 @@ RECIPIENT_EMAILS=email1@qq.com,email2@163.com,email3@gmail.com
 
 ---
 
-**🎉 感谢使用 CChanTrader-AI 现代化Web管理平台！**
+**🎉 感谢使用 trader-AI 现代化Web管理平台！**
 
 升级后的界面将为您带来更加流畅、直观、高效的使用体验。

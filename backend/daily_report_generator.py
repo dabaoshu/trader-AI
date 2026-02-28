@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CChanTrader-AI 交易日报生成器
+trader-AI 交易日报生成器
 在每个交易日9:25-9:29自动分析并生成日报
 """
 

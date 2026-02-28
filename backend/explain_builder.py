@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CChanTrader-AI 股票解释构建器
+trader-AI 股票解释构建器
 生成股票分析的HTML片段和价格数据
 """
 

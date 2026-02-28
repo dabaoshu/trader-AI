@@ -1,8 +1,8 @@
-# 🖥️ CChanTrader-AI Web管理平台产品设计
+# 🖥️ trader-AI Web管理平台产品设计
 
 ## 🎯 产品定位
 
-**CChanTrader-AI Web Dashboard** - 智能股票分析与交易决策管理平台
+**trader-AI Web Dashboard** - 智能股票分析与交易决策管理平台
 
 一个集成了股票分析、竞价监控、邮件推送、系统管理于一体的可视化Web平台，让您轻松管理和监控您的智能交易助手。
 
