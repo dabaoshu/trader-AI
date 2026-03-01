@@ -166,6 +166,65 @@ web_manager = WebAppManager()
 
 
 # =====================================================================
+# 分析任务队列（深度分析进度）
+# =====================================================================
+
+_analysis_tasks = {}  # task_id -> {id, status, progress, total, current_stock, message, phase, result, error, created_at}
+_analysis_task_lock = threading.Lock()
+_analysis_task_counter = 0
+
+
+def _run_analysis_task(task_id):
+    """后台执行分析任务"""
+    with _analysis_task_lock:
+        if task_id not in _analysis_tasks:
+            return
+        _analysis_tasks[task_id]['status'] = 'running'
+
+    def progress_cb(current, total, stock, msg, phase):
+        with _analysis_task_lock:
+            if task_id in _analysis_tasks:
+                _analysis_tasks[task_id].update({
+                    'progress': current,
+                    'total': total,
+                    'current_stock': stock,
+                    'message': msg,
+                    'phase': phase,
+                })
+
+    try:
+        from analysis.optimized_stock_analyzer import OptimizedStockAnalyzer
+        analyzer = OptimizedStockAnalyzer()
+        report = analyzer.generate_optimized_recommendations(progress_callback=progress_cb)
+        with _analysis_task_lock:
+            if task_id in _analysis_tasks:
+                if report and 'recommendations' in report:
+                    recs = report['recommendations']
+                    web_manager.save_recommendations(recs, report['date'])
+                    _analysis_tasks[task_id].update({
+                        'status': 'completed',
+                        'message': f'分析完成，共 {len(recs)} 只推荐股票',
+                        'result': {'count': len(recs), 'date': report['date']},
+                    })
+                else:
+                    _analysis_tasks[task_id].update({
+                        'status': 'completed',
+                        'message': '分析完成但无推荐股票',
+                        'result': {},
+                    })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        with _analysis_task_lock:
+            if task_id in _analysis_tasks:
+                _analysis_tasks[task_id].update({
+                    'status': 'failed',
+                    'message': str(e),
+                    'error': str(e),
+                })
+
+
+# =====================================================================
 # 每日推荐 API
 # =====================================================================
 
@@ -183,18 +242,77 @@ def api_daily_recommendations():
 
 @app.route('/api/daily/run_analysis', methods=['POST'])
 def api_daily_run_analysis():
+    """启动分析任务（异步），返回 task_id，前端轮询 /api/daily/analysis_queue 获取进度"""
+    global _analysis_task_counter
     try:
-        from analysis.optimized_stock_analyzer import OptimizedStockAnalyzer
-        analyzer = OptimizedStockAnalyzer()
-        report = analyzer.generate_optimized_recommendations()
-        if report and 'recommendations' in report:
-            recs = report['recommendations']
-            web_manager.save_recommendations(recs, report['date'])
-            return jsonify({'success': True, 'message': f'分析完成，共 {len(recs)} 只推荐股票', 'data': {'count': len(recs), 'date': report['date']}})
-        return jsonify({'success': False, 'message': '分析完成但无推荐股票'})
+        with _analysis_task_lock:
+            _analysis_task_counter += 1
+            task_id = f"analysis-{_analysis_task_counter}"
+            _analysis_tasks[task_id] = {
+                'id': task_id,
+                'status': 'pending',
+                'progress': 0,
+                'total': 0,
+                'current_stock': None,
+                'message': '任务已创建，等待启动...',
+                'phase': 'pending',
+                'result': None,
+                'error': None,
+                'created_at': datetime.now().isoformat(),
+            }
+        t = threading.Thread(target=_run_analysis_task, args=(task_id,), daemon=True)
+        t.start()
+        return jsonify({
+            'success': True,
+            'message': '分析任务已启动',
+            'data': {'task_id': task_id},
+        })
     except Exception as e:
-        import traceback; traceback.print_exc()
-        return jsonify({'success': False, 'message': f'分析失败: {e}'})
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'启动失败: {e}'})
+
+
+@app.route('/api/daily/analysis_queue')
+def api_daily_analysis_queue():
+    """获取分析任务队列（运行中 + 最近完成的）"""
+    limit = request.args.get('limit', 20, type=int)
+    with _analysis_task_lock:
+        tasks = list(_analysis_tasks.values())
+    # 按创建时间倒序，取最近 limit 条
+    tasks.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    tasks = tasks[:limit]
+    return jsonify({'success': True, 'data': {'tasks': tasks}})
+
+
+@app.route('/api/daily/from_screener', methods=['POST'])
+def api_daily_from_screener():
+    """将条件选股记录的结果设为今日推荐"""
+    try:
+        d = request.json or {}
+        record_id = d.get('record_id')
+        if not record_id:
+            return jsonify({'success': False, 'message': '请指定 record_id'})
+        target_date = d.get('date', datetime.now().strftime('%Y-%m-%d'))
+
+        record = screener_record_mgr.get_record_by_id(int(record_id))
+        if not record:
+            return jsonify({'success': False, 'message': '选股记录不存在'})
+
+        result_data = record.get('result_data') or []
+        if not result_data:
+            return jsonify({'success': False, 'message': '该记录无筛选结果'})
+
+        web_manager.save_recommendations(result_data, target_date)
+        return jsonify({
+            'success': True,
+            'message': f'已从「{record.get("name", "")}」导入 {len(result_data)} 只股票为 {target_date} 推荐',
+            'data': {'count': len(result_data), 'date': target_date},
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)})
 
 
 @app.route('/api/daily/update_status', methods=['POST'])

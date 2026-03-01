@@ -140,78 +140,35 @@ class OptimizedStockAnalyzer:
         
         return []
     
-    def _get_predefined_stock_pool(self):
-        """获取预定义的优质股票池"""
-        
-        # ⚠️ 退市风险股票黑名单
-        blacklist_stocks = {
-            '000606',  # 顺利退 - 即将退市
-            '300090',  # 盛运退 - 已退市
-            '002680',  # 长生退 - 已退市
-            '300156',  # 神雾退 - 已退市
-            '000536',  # 华映退 - 已退市
-            '002359',  # 齐星退 - 已退市
-            '000753',  # 大黄退 - 已退市
-        }
-        
-        # 涵盖不同价格区间和行业的优质股票
-        predefined_stocks = [
-            # 低价股 (2-10元) - 移除退市风险股票000606
-            ('sz.002139', '拓邦股份'),
-            ('sz.300365', '恒华科技'),
-            ('sz.000816', '智慧农业'),
-            ('sz.002605', '姚记科技'),
-            ('sz.300496', '中科创达'),
-            ('sz.002230', '科大讯飞'),
-            ('sz.300059', '东方财富'),
-            ('sz.000725', '京东方A'),
-            ('sz.002241', '歌尔股份'),
-            
-            # 中价股 (10-50元)
-            ('sz.002475', '立讯精密'),
-            ('sz.300750', '宁德时代'),
-            ('sz.002812', '恩捷股份'),
-            ('sz.300760', '迈瑞医疗'),
-            ('sz.000858', '五粮液'),
-            ('sz.002304', '洋河股份'),
-            ('sz.000333', '美的集团'),
-            ('sz.002415', '海康威视'),
-            ('sz.300014', '亿纬锂能'),
-            ('sz.300122', '智飞生物'),
-            
-            # 高价股 (50元以上)
-            ('sz.300274', '阳光电源'),
-            ('sz.002460', '赣锋锂业'),
-            ('sz.300142', '沃森生物'),
-            ('sz.300015', '爱尔眼科'),
-            ('sz.300782', '卓胜微'),
-            
-            # 上海主板优质股
-            ('sh.600519', '贵州茅台'),
-            ('sh.600036', '招商银行'),
-            ('sh.600276', '恒瑞医药'),
-            ('sh.600887', '伊利股份'),
-            ('sh.601318', '中国平安'),
-            ('sh.600000', '浦发银行'),
-            ('sh.601166', '兴业银行'),
-            ('sh.600309', '万华化学'),
-            ('sh.601012', '隆基绿能'),
-            ('sh.600745', '闻泰科技'),
-            ('sh.600150', '中国船舶'),
-            ('sh.600690', '海尔智家')
-        ]
-        
-        # 过滤掉黑名单股票
+    def _get_predefined_stock_pool(self, pool_key='default'):
+        """从 JSON 文件加载预定义股票池"""
+        json_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'stock_pools.json')
+        default_blacklist = {'000606', '300090', '002680', '300156', '000536', '002359', '000753'}
+
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                pools = json.load(f)
+            pool = pools.get(pool_key) or pools.get('default')
+            if not pool:
+                print("⚠️ stock_pools.json 中未找到 default 池，使用空池")
+                return []
+            stocks_data = pool.get('stocks', [])
+            blacklist = set(pool.get('blacklist', [])) or default_blacklist
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"⚠️ 加载 stock_pools.json 失败: {e}，使用空池")
+            return []
+
         filtered_stocks = []
-        for code, name in predefined_stocks:
-            # 提取纯数字代码用于黑名单检查
+        for item in stocks_data:
+            code = item.get('code') or item.get('symbol', '')
+            name = item.get('name') or item.get('stock_name', '')
             stock_code = code.split('.')[-1] if '.' in code else code
-            if stock_code not in blacklist_stocks:
+            if stock_code not in blacklist:
                 filtered_stocks.append((code, name))
             else:
                 print(f"⚠️ 已过滤退市风险股票: {code} {name}")
-        
-        print(f"📊 预定义股票池包含 {len(filtered_stocks)} 只优质股票 (已过滤 {len(predefined_stocks) - len(filtered_stocks)} 只风险股票)")
+
+        print(f"📊 预定义股票池 ({pool.get('name', pool_key)}) 包含 {len(filtered_stocks)} 只优质股票")
         return filtered_stocks
     
     def _is_risky_stock(self, symbol, stock_name):
@@ -569,41 +526,55 @@ class OptimizedStockAnalyzer:
         else:
             return np.random.uniform(50, 150)
     
-    def generate_optimized_recommendations(self):
-        """生成优化的股票推荐 - 集成深度分析"""
+    def generate_optimized_recommendations(self, progress_callback=None):
+        """
+        生成优化的股票推荐 - 集成深度分析
+
+        @param {function} progress_callback - 可选进度回调 (current, total, current_stock, message, phase)
+        """
+        def _report(current, total, stock, msg, phase='analyzing'):
+            if progress_callback:
+                progress_callback(current, total, stock, msg, phase)
+
         print("🚀 开始优化版股票分析（集成LLM深度分析）...")
-        
+
         config = self.get_strategy_config()
         print(f"📊 策略配置: 阈值={config['score_threshold']}, 最大推荐={config['max_recommendations']}")
-        
+
         # 获取股票池
         stock_pool = self.get_enhanced_stock_pool()
         print(f"📋 股票池大小: {len(stock_pool)} 只")
-        
+        total_stocks = len(stock_pool)
+        _report(0, total_stocks, None, '正在获取股票池...', 'init')
+
         recommendations = []
         analysis_count = 0
-        
+
         # 使用深度分析器
         try:
             from analysis.deep_stock_analyzer import DeepStockAnalyzer
             deep_analyzer = DeepStockAnalyzer()
             use_deep_analysis = True
             print("🧠 启用深度LLM分析...")
-        except:
+        except Exception:
             use_deep_analysis = False
             print("⚠️ 深度分析器不可用，使用基础分析...")
-        
-        for symbol, stock_name in stock_pool:
+
+        for idx, (symbol, stock_name) in enumerate(stock_pool):
             analysis_count += 1
-            
+            _report(idx + 1, total_stocks, {'symbol': symbol, 'name': stock_name},
+                    f'正在分析 {stock_name} ({symbol})...', 'analyzing')
+
             # 🛡️ 风险股票过滤
             is_risky, risk_reason = self._is_risky_stock(symbol, stock_name)
             if is_risky:
                 print(f"⚠️ 跳过风险股票 {symbol} {stock_name}: {risk_reason}")
                 continue
-            
+
             if use_deep_analysis and len(recommendations) < 3:  # 对前3只股票进行深度分析
                 try:
+                    _report(idx + 1, total_stocks, {'symbol': symbol, 'name': stock_name},
+                            f'深度分析 {stock_name}...', 'deep_analysis')
                     # 深度分析
                     deep_result = deep_analyzer.generate_deep_analysis_report(symbol)
                     if deep_result and deep_result.get('total_score', 0) >= config['score_threshold']:
@@ -614,21 +585,22 @@ class OptimizedStockAnalyzer:
                         continue
                 except Exception as e:
                     print(f"⚠️ {symbol} 深度分析失败: {e}")
-            
+
             # 基础分析
             result = self.analyze_stock_with_fallback(symbol, stock_name)
             if result:
                 recommendations.append(result)
                 print(f"✅ {symbol} {stock_name}: {result['total_score']:.3f}")
-            
+
             # 如果已经有足够的推荐，可以提前结束
             if len(recommendations) >= config['max_recommendations'] * 2:
                 break
         
         # 排序并限制数量
+        _report(total_stocks, total_stocks, None, '正在生成推荐...', 'sorting')
         recommendations.sort(key=lambda x: x['total_score'], reverse=True)
         final_recommendations = recommendations[:config['max_recommendations']]
-        
+
         print(f"🎯 分析完成: {analysis_count}只股票，推荐{len(final_recommendations)}只")
         
         # 生成统计数据
