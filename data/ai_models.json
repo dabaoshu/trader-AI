@@ -5,7 +5,7 @@
       "name": "MiniMax",
       "base_url": "https://api.minimaxi.com/v1",
       "model_id": "MiniMax-M2.5",
-      "api_key": "test-key-123",
+      "api_key": "sk-cp-nRoGLoBDM0GzEggQmBN4sEZ6XOR_DgfCx6o_cM1xYBTEjKRtW23lV8relBFMPP7QfX54Nfi_pmYpwDJoQVKpn8GAMoOJFW_FmVFtzcvtfv3b_dNyCs3jNPA",
       "enabled": true,
       "created_at": "2026-02-27 09:52:49"
     },
@@ -14,7 +14,7 @@
       "name": "MiniMax",
       "base_url": "https://api.minimaxi.com/v1",
       "model_id": "MiniMax-M2.5",
-      "api_key": "sk-test-demo-key-12345",
+      "api_key": "sk-cp-nRoGLoBDM0GzEggQmBN4sEZ6XOR_DgfCx6o_cM1xYBTEjKRtW23lV8relBFMPP7QfX54Nfi_pmYpwDJoQVKpn8GAMoOJFW_FmVFtzcvtfv3b_dNyCs3jNPA",
       "enabled": true,
       "created_at": "2026-02-27 09:58:16"
     }
