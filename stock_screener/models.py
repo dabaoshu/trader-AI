@@ -228,3 +228,92 @@ class ScreenerRecordManager:
             'price_range': [round(min(prices), 2), round(max(prices), 2)] if prices else [0, 0],
             'top_stocks': top_list,
         }
+
+
+class ScreenerTemplateManager:
+    """用户自定义选股模板（保存/加载条件，不存结果）"""
+
+    def __init__(self, db_path="data/cchan_web.db"):
+        self.db_path = db_path
+        self._ensure_table()
+
+    def _ensure_table(self):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS screener_templates (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL,
+                description TEXT,
+                conditions  TEXT NOT NULL,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+        conn.close()
+
+    def list_templates(self, limit=50):
+        """获取模板列表，按创建时间降序"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''
+            SELECT id, name, description, conditions, created_at
+            FROM screener_templates
+            ORDER BY created_at DESC
+            LIMIT ?
+        ''', (limit,))
+        rows = c.fetchall()
+        conn.close()
+        return [
+            {
+                'id': r[0],
+                'name': r[1],
+                'description': r[2] or '',
+                'conditions': json.loads(r[3]) if r[3] else {},
+                'created_at': r[4],
+            }
+            for r in rows
+        ]
+
+    def add_template(self, name, conditions, description=None):
+        """创建模板，返回新记录 id"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute(
+            'INSERT INTO screener_templates (name, description, conditions) VALUES (?, ?, ?)',
+            (name, description or '', json.dumps(conditions, ensure_ascii=False)),
+        )
+        tid = c.lastrowid
+        conn.commit()
+        conn.close()
+        return tid
+
+    def get_template(self, template_id):
+        """按 id 获取单条模板"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute(
+            'SELECT id, name, description, conditions, created_at FROM screener_templates WHERE id = ?',
+            (template_id,),
+        )
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {
+            'id': row[0],
+            'name': row[1],
+            'description': row[2] or '',
+            'conditions': json.loads(row[3]) if row[3] else {},
+            'created_at': row[4],
+        }
+
+    def delete_template(self, template_id):
+        """删除模板，返回是否删除成功"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('DELETE FROM screener_templates WHERE id = ?', (template_id,))
+        n = c.rowcount
+        conn.commit()
+        conn.close()
+        return n > 0

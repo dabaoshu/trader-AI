@@ -2,10 +2,12 @@ import type {
   ApiResponse,
   ScreenerRecord,
   PresetTemplate,
+  ScreenerTemplate,
   RunScreenerData,
   ScreenerConditions,
   AnalysisRule,
   AnalysisReport,
+  AnalysisRunRecord,
   AIProvider,
   CallerItem,
   WatchlistGroup,
@@ -44,6 +46,45 @@ export async function runScreener(payload: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  })
+  return res.json()
+}
+
+export async function fetchScreenerTemplates(limit = 50): Promise<ApiResponse<ScreenerTemplate[]>> {
+  const res = await fetch(`${BASE}/templates?limit=${limit}`)
+  return res.json()
+}
+
+export async function createScreenerTemplate(payload: {
+  name: string
+  description?: string
+  conditions: ScreenerConditions
+}): Promise<ApiResponse<{ id: number; name: string }>> {
+  const res = await fetch(`${BASE}/templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return res.json()
+}
+
+export async function deleteScreenerTemplate(id: number): Promise<ApiResponse> {
+  const res = await fetch(`${BASE}/templates/${id}`, { method: 'DELETE' })
+  return res.json()
+}
+
+// ---- Daily / 分析历史 ----
+
+export async function fetchAnalysisHistory(limit = 50): Promise<ApiResponse<AnalysisRunRecord[]>> {
+  const res = await fetch(`/api/daily/analysis_history?limit=${limit}`)
+  return res.json()
+}
+
+export async function stopAnalysis(taskId: string): Promise<ApiResponse<unknown>> {
+  const res = await fetch('/api/daily/stop_analysis', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_id: taskId }),
   })
   return res.json()
 }

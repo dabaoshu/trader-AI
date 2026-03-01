@@ -80,6 +80,28 @@ export interface PresetTemplate {
   conditions: ScreenerConditions
 }
 
+/** 用户自定义选股模板 */
+export interface ScreenerTemplate {
+  id: number
+  name: string
+  description?: string
+  conditions: ScreenerConditions
+  created_at: string
+}
+
+/** 批量分析运行记录（分析历史） */
+export interface AnalysisRunRecord {
+  id: number
+  task_id: string
+  status: string
+  started_at: string
+  finished_at: string
+  result_count: number
+  result_date: string
+  error_message: string
+  created_at: string
+}
+
 /** 通用 API 响应 */
 export interface ApiResponse<T = unknown> {
   success: boolean

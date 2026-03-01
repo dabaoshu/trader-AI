@@ -207,14 +207,41 @@ function statusOpts() {
 }
 
 function taskStatusLabel(s: string) {
-  return { pending: '等待中', running: '运行中', completed: '已完成', failed: '失败' }[s] || s
+  return { pending: '等待中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已停止' }[s] || s
 }
 
 function taskStatusCls(s: string) {
   if (s === 'running') return 'bg-blue-100 text-blue-700 border-blue-200'
   if (s === 'completed') return 'bg-green-100 text-green-700 border-green-200'
   if (s === 'failed') return 'bg-red-100 text-red-700 border-red-200'
+  if (s === 'cancelled') return 'bg-amber-100 text-amber-700 border-amber-200'
   return 'bg-gray-100 text-gray-600 border-gray-200'
+}
+
+/** 运行中任务数（含 pending） */
+const runningTaskCount = computed(() =>
+  analysisQueue.value.filter(t => t.status === 'running' || t.status === 'pending').length
+)
+
+const stoppingTaskId = ref<string | null>(null)
+async function stopTask(taskId: string) {
+  stoppingTaskId.value = taskId
+  try {
+    const res = await fetch('/api/daily/stop_analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: taskId }),
+    })
+    const data = await res.json()
+    if (data.success) {
+      notify('已发送停止信号', 'info')
+      await loadAnalysisQueue()
+    } else {
+      notify(data.message || '停止失败', 'error')
+    }
+  } finally {
+    stoppingTaskId.value = null
+  }
 }
 
 onMounted(async () => {
@@ -237,9 +264,9 @@ onUnmounted(() => {
       <div class="bg-white rounded-xl border border-gray-200 p-5 text-center">
         <div class="text-3xl font-bold text-indigo-600">{{ status?.today_recommendations ?? '-' }}</div>
         <div class="text-xs text-gray-500 mt-1">今日推荐</div>
-        <button @click="runAnalysis" :disabled="analyzing || hasRunningTask"
+        <button @click="runAnalysis" :disabled="analyzing"
                 class="mt-3 w-full text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
-          {{ analyzing || hasRunningTask ? '分析中…' : '立即分析' }}
+          {{ analyzing ? '提交中…' : '立即分析' }}
         </button>
       </div>
       <div class="bg-white rounded-xl border border-gray-200 p-5 text-center">
@@ -259,34 +286,51 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 分析任务队列 -->
-    <div v-if="analysisQueue.length" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
-          <span class="inline-block w-2 h-2 rounded-full bg-indigo-500 animate-pulse" v-if="hasRunningTask"></span>
-          分析任务队列
-        </h3>
-        <button @click="loadAnalysisQueue" class="text-xs text-indigo-600 hover:text-indigo-700">刷新</button>
+    <!-- 多线程分析任务队列（常显，展示各任务进度与停止） -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-200">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <span class="inline-block w-2 h-2 rounded-full bg-indigo-500 animate-pulse" v-if="hasRunningTask"></span>
+            分析任务队列
+            <span v-if="analysisQueue.length" class="text-xs font-normal text-gray-500">
+              共 {{ analysisQueue.length }} 个任务<span v-if="runningTaskCount">，{{ runningTaskCount }} 个运行中</span>
+            </span>
+          </h3>
+          <button @click="loadAnalysisQueue" class="text-xs text-indigo-600 hover:text-indigo-700">刷新</button>
+        </div>
+        <p class="text-xs text-gray-400 mt-1">支持并行多任务，可多次点击「立即分析」；运行中任务可点击「停止」中止</p>
       </div>
-      <div class="divide-y divide-gray-100">
+      <div class="divide-y divide-gray-100 min-h-[80px]">
+        <div v-if="!analysisQueue.length" class="px-5 py-8 text-center text-gray-400 text-sm">
+          暂无分析任务，点击「立即分析」开始
+        </div>
         <div v-for="t in analysisQueue" :key="t.id"
              class="px-5 py-4 flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-mono text-gray-500">{{ t.id }}</span>
-            <span class="text-xs px-2 py-0.5 rounded border" :class="taskStatusCls(t.status)">
-              {{ taskStatusLabel(t.status) }}
-            </span>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-mono text-gray-500 truncate">{{ t.id }}</span>
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="text-xs px-2 py-0.5 rounded border" :class="taskStatusCls(t.status)">
+                {{ taskStatusLabel(t.status) }}
+              </span>
+              <button v-if="t.status === 'pending' || t.status === 'running'"
+                      @click="stopTask(t.id)"
+                      :disabled="stoppingTaskId === t.id"
+                      class="text-xs px-2 py-0.5 rounded border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50">
+                {{ stoppingTaskId === t.id ? '停止中…' : '停止' }}
+              </button>
+            </div>
           </div>
           <div v-if="t.status === 'running' && t.total > 0" class="space-y-1">
             <div class="flex justify-between text-xs text-gray-600">
-              <span>{{ t.message }}</span>
-              <span>{{ t.progress }} / {{ t.total }}</span>
+              <span class="truncate mr-2">{{ t.message }}</span>
+              <span class="shrink-0">{{ t.progress }} / {{ t.total }}</span>
             </div>
             <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
               <div class="h-full bg-indigo-500 rounded-full transition-all duration-300"
                    :style="{ width: Math.min(100, (t.progress / t.total) * 100) + '%' }"></div>
             </div>
-            <div v-if="t.current_stock" class="text-xs text-indigo-600">
+            <div v-if="t.current_stock" class="text-xs text-indigo-600 truncate">
               当前: {{ t.current_stock.name }} ({{ t.current_stock.symbol }})
             </div>
           </div>
@@ -294,7 +338,8 @@ onUnmounted(() => {
           <div v-if="t.status === 'completed' && t.result" class="text-xs text-green-600">
             推荐 {{ t.result.count }} 只 · {{ t.result.date }}
           </div>
-          <div v-if="t.status === 'failed' && t.error" class="text-xs text-red-600">{{ t.error }}</div>
+          <div v-if="t.status === 'cancelled'" class="text-xs text-amber-600">已停止</div>
+          <div v-if="t.status === 'failed' && t.error" class="text-xs text-red-600 truncate">{{ t.error }}</div>
         </div>
       </div>
     </div>
@@ -499,9 +544,9 @@ onUnmounted(() => {
       </svg>
       <p class="text-sm mb-2">暂无推荐股票</p>
       <p class="text-xs mb-4">点击「立即分析」开始生成今日推荐</p>
-      <button @click="runAnalysis" :disabled="analyzing || hasRunningTask"
+      <button @click="runAnalysis" :disabled="analyzing"
               class="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
-        {{ analyzing || hasRunningTask ? '分析中…' : '开始分析' }}
+        {{ analyzing ? '提交中…' : '开始分析' }}
       </button>
     </div>
   </div>

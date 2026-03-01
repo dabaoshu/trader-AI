@@ -19,7 +19,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.daily_report_generator import DailyReportGenerator
 from analysis.trading_day_scheduler import TradingDayScheduler
 from stock_screener.screener import StockScreener
-from stock_screener.models import ScreenerRecordManager
+from stock_screener.models import ScreenerRecordManager, ScreenerTemplateManager
 from stock_screener.analyzer.ai_model import get_ai_model_manager
 from stock_screener.analyzer.engine import StockAnalysisEngine
 from stock_screener.watchlist import WatchlistManager
@@ -82,6 +82,16 @@ class WebAppManager:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             level TEXT NOT NULL, message TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS analysis_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            result_count INTEGER,
+            result_date TEXT,
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         conn.commit()
         conn.close()
 
@@ -133,6 +143,49 @@ class WebAppManager:
         conn.close()
         return r or '从未更新'
 
+    def add_analysis_run(self, task_id: str, started_at: str):
+        """记录一次分析任务开始（供分析历史）"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute(
+            'INSERT INTO analysis_runs (task_id, status, started_at) VALUES (?, ?, ?)',
+            (task_id, 'pending', started_at),
+        )
+        conn.commit()
+        conn.close()
+
+    def update_analysis_run(
+        self,
+        task_id: str,
+        status: str,
+        finished_at: str = None,
+        result_count: int = None,
+        result_date: str = None,
+        error_message: str = None,
+    ):
+        """更新分析任务结束状态"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''
+            UPDATE analysis_runs SET status=?, finished_at=?, result_count=?, result_date=?, error_message=?
+            WHERE task_id=?
+        ''', (status, finished_at or '', result_count or 0, result_date or '', error_message or '', task_id))
+        conn.commit()
+        conn.close()
+
+    def get_analysis_runs(self, limit: int = 50):
+        """获取分析历史列表，按创建时间倒序"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''
+            SELECT id, task_id, status, started_at, finished_at, result_count, result_date, error_message, created_at
+            FROM analysis_runs ORDER BY id DESC LIMIT ?
+        ''', (limit,))
+        cols = ['id', 'task_id', 'status', 'started_at', 'finished_at', 'result_count', 'result_date', 'error_message', 'created_at']
+        rows = [dict(zip(cols, r)) for r in c.fetchall()]
+        conn.close()
+        return rows
+
     def get_strategy_config(self):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -173,53 +226,32 @@ _analysis_task_counter = 0
 
 
 def _run_analysis_task(task_id):
-    """后台执行分析任务"""
+    """后台执行分析任务（委托给 StockAnalysisService，带进度与日志）"""
     with _analysis_task_lock:
         if task_id not in _analysis_tasks:
             return
-        _analysis_tasks[task_id]['status'] = 'running'
 
-    def progress_cb(current, total, stock, msg, phase):
+    def state_updater(**kwargs):
         with _analysis_task_lock:
             if task_id in _analysis_tasks:
-                _analysis_tasks[task_id].update({
-                    'progress': current,
-                    'total': total,
-                    'current_stock': stock,
-                    'message': msg,
-                    'phase': phase,
-                })
+                _analysis_tasks[task_id].update(kwargs)
 
-    try:
-        from analysis.optimized_stock_analyzer import OptimizedStockAnalyzer
-        analyzer = OptimizedStockAnalyzer()
-        report = analyzer.generate_optimized_recommendations(progress_callback=progress_cb)
+    def save_recommendations(recs, date_str):
+        web_manager.save_recommendations(recs, date_str)
+
+    def on_finish(status, finished_at, result_count=None, result_date=None, error_message=None):
+        web_manager.update_analysis_run(
+            task_id, status, finished_at=finished_at,
+            result_count=result_count, result_date=result_date, error_message=error_message,
+        )
+
+    def is_cancelled():
         with _analysis_task_lock:
-            if task_id in _analysis_tasks:
-                if report and 'recommendations' in report:
-                    recs = report['recommendations']
-                    web_manager.save_recommendations(recs, report['date'])
-                    _analysis_tasks[task_id].update({
-                        'status': 'completed',
-                        'message': f'分析完成，共 {len(recs)} 只推荐股票',
-                        'result': {'count': len(recs), 'date': report['date']},
-                    })
-                else:
-                    _analysis_tasks[task_id].update({
-                        'status': 'completed',
-                        'message': '分析完成但无推荐股票',
-                        'result': {},
-                    })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        with _analysis_task_lock:
-            if task_id in _analysis_tasks:
-                _analysis_tasks[task_id].update({
-                    'status': 'failed',
-                    'message': str(e),
-                    'error': str(e),
-                })
+            return _analysis_tasks.get(task_id, {}).get('cancelled', False)
+
+    from backend.services.stock_analysis_service import StockAnalysisService
+    service = StockAnalysisService()
+    service.run_analysis(task_id, state_updater, save_recommendations, on_finish=on_finish, is_cancelled=is_cancelled)
 
 
 # =====================================================================
@@ -240,12 +272,13 @@ def api_daily_recommendations():
 
 @app.route('/api/daily/run_analysis', methods=['POST'])
 def api_daily_run_analysis():
-    """启动分析任务（异步），返回 task_id，前端轮询 /api/daily/analysis_queue 获取进度"""
+    """启动分析任务（异步），返回 task_id，前端轮询 /api/daily/analysis_queue 获取进度。支持并行：多次调用可同时运行多个分析任务。"""
     global _analysis_task_counter
     try:
         with _analysis_task_lock:
             _analysis_task_counter += 1
             task_id = f"analysis-{_analysis_task_counter}"
+            created_at = datetime.now().isoformat()
             _analysis_tasks[task_id] = {
                 'id': task_id,
                 'status': 'pending',
@@ -256,8 +289,10 @@ def api_daily_run_analysis():
                 'phase': 'pending',
                 'result': None,
                 'error': None,
-                'created_at': datetime.now().isoformat(),
+                'cancelled': False,
+                'created_at': created_at,
             }
+        web_manager.add_analysis_run(task_id, created_at)
         t = threading.Thread(target=_run_analysis_task, args=(task_id,), daemon=True)
         t.start()
         return jsonify({
@@ -281,6 +316,34 @@ def api_daily_analysis_queue():
     tasks.sort(key=lambda x: x.get('created_at', ''), reverse=True)
     tasks = tasks[:limit]
     return jsonify({'success': True, 'data': {'tasks': tasks}})
+
+
+@app.route('/api/daily/stop_analysis', methods=['POST'])
+def api_daily_stop_analysis():
+    """停止指定分析任务（仅对 pending/running 有效）"""
+    try:
+        d = request.json or {}
+        task_id = d.get('task_id')
+        if not task_id:
+            return jsonify({'success': False, 'message': '请提供 task_id'})
+        with _analysis_task_lock:
+            if task_id not in _analysis_tasks:
+                return jsonify({'success': False, 'message': '任务不存在'})
+            t = _analysis_tasks[task_id]
+            if t.get('status') not in ('pending', 'running'):
+                return jsonify({'success': False, 'message': f"任务已{t.get('status')}，无法停止"})
+            t['cancelled'] = True
+        return jsonify({'success': True, 'message': '已发送停止信号，任务将在当前步骤结束后停止'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/daily/analysis_history')
+def api_daily_analysis_history():
+    """获取分析历史（持久化记录，供分析历史页展示）"""
+    limit = request.args.get('limit', 50, type=int)
+    runs = web_manager.get_analysis_runs(limit)
+    return jsonify({'success': True, 'data': runs})
 
 
 @app.route('/api/daily/from_screener', methods=['POST'])
@@ -446,6 +509,7 @@ def api_analyzer_analyze():
 # =====================================================================
 
 screener_record_mgr = ScreenerRecordManager()
+screener_template_mgr = ScreenerTemplateManager()
 
 @app.route('/api/screener/run', methods=['POST'])
 def api_screener_run():
@@ -500,6 +564,29 @@ def api_screener_record_detail(rid):
 @app.route('/api/screener/records/<int:rid>', methods=['DELETE'])
 def api_screener_record_delete(rid):
     return jsonify({'success': screener_record_mgr.delete_record(rid)})
+
+
+@app.route('/api/screener/templates')
+def api_screener_templates():
+    limit = request.args.get('limit', 50, type=int)
+    return jsonify({'success': True, 'data': screener_template_mgr.list_templates(limit)})
+
+
+@app.route('/api/screener/templates', methods=['POST'])
+def api_screener_template_create():
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'message': '模板名称不能为空'})
+    conditions = d.get('conditions', {})
+    description = (d.get('description') or '').strip()
+    tid = screener_template_mgr.add_template(name, conditions, description)
+    return jsonify({'success': True, 'data': {'id': tid, 'name': name}})
+
+
+@app.route('/api/screener/templates/<int:tid>', methods=['DELETE'])
+def api_screener_template_delete(tid):
+    return jsonify({'success': screener_template_mgr.delete_template(tid)})
 
 
 # =====================================================================

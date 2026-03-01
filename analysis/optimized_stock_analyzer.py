@@ -526,15 +526,19 @@ class OptimizedStockAnalyzer:
         else:
             return np.random.uniform(50, 150)
     
-    def generate_optimized_recommendations(self, progress_callback=None):
+    def generate_optimized_recommendations(self, progress_callback=None, is_cancelled=None):
         """
         生成优化的股票推荐 - 集成深度分析
 
         @param {function} progress_callback - 可选进度回调 (current, total, current_stock, message, phase)
+        @param {function} is_cancelled - 可选，无参可调用，返回 True 时中止分析并返回 cancelled 结果
         """
         def _report(current, total, stock, msg, phase='analyzing'):
             if progress_callback:
                 progress_callback(current, total, stock, msg, phase)
+
+        def _cancelled():
+            return is_cancelled and is_cancelled()
 
         print("🚀 开始优化版股票分析（集成LLM深度分析）...")
 
@@ -546,6 +550,8 @@ class OptimizedStockAnalyzer:
         print(f"📋 股票池大小: {len(stock_pool)} 只")
         total_stocks = len(stock_pool)
         _report(0, total_stocks, None, '正在获取股票池...', 'init')
+        if _cancelled():
+            return {'cancelled': True, 'recommendations': [], 'date': datetime.now().strftime('%Y-%m-%d')}
 
         recommendations = []
         analysis_count = 0
@@ -561,6 +567,17 @@ class OptimizedStockAnalyzer:
             print("⚠️ 深度分析器不可用，使用基础分析...")
 
         for idx, (symbol, stock_name) in enumerate(stock_pool):
+            if _cancelled():
+                print("🛑 分析已中止")
+                recommendations.sort(key=lambda x: x['total_score'], reverse=True)
+                final = recommendations[:config['max_recommendations']]
+                return {
+                    'cancelled': True,
+                    'date': datetime.now().strftime('%Y-%m-%d'),
+                    'recommendations': final,
+                    'market_summary': {'total_analyzed': analysis_count, 'avg_score': sum(r['total_score'] for r in final) / len(final) if final else 0},
+                    'auction_analysis': {},
+                }
             analysis_count += 1
             _report(idx + 1, total_stocks, {'symbol': symbol, 'name': stock_name},
                     f'正在分析 {stock_name} ({symbol})...', 'analyzing')

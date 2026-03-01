@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { fetchAnalysisRules, analyzeStock } from '../api'
-import type { AnalysisRule, AnalysisReport, RuleResult } from '../types'
+import { fetchAnalysisRules, analyzeStock, fetchAnalysisHistory } from '../api'
+import type { AnalysisRule, AnalysisReport, RuleResult, AnalysisRunRecord } from '../types'
 import ToastNotify from '../components/ToastNotify.vue'
 import AddToWatchlist from '../components/AddToWatchlist.vue'
 
@@ -14,6 +14,7 @@ const stockCode = ref('')
 const loading = ref(false)
 const report = ref<AnalysisReport | null>(null)
 const history = ref<AnalysisReport[]>([])
+const analysisRunHistory = ref<AnalysisRunRecord[]>([])
 const toast = ref({ show: false, msg: '', type: 'info' })
 
 function notify(msg: string, type = 'info') {
@@ -57,6 +58,33 @@ async function loadRules() {
   }
 }
 
+async function loadAnalysisRunHistory() {
+  const res = await fetchAnalysisHistory(30)
+  if (res.success) analysisRunHistory.value = res.data
+}
+
+function runStatusLabel(status: string): string {
+  return { pending: '等待中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已停止' }[status] || status
+}
+
+function runStatusCls(status: string): string {
+  if (status === 'completed') return 'bg-green-100 text-green-800'
+  if (status === 'failed') return 'bg-red-100 text-red-800'
+  if (status === 'running') return 'bg-indigo-100 text-indigo-800'
+  if (status === 'cancelled') return 'bg-amber-100 text-amber-800'
+  return 'bg-gray-100 text-gray-600'
+}
+
+function formatRunTime(iso: string): string {
+  if (!iso) return '-'
+  try {
+    const d = new Date(iso)
+    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return iso
+  }
+}
+
 async function doAnalyze() {
   const code = stockCode.value.trim()
   if (!code) { notify('请输入股票代码', 'error'); return }
@@ -95,6 +123,7 @@ function toggleRule(id: string) {
 
 onMounted(async () => {
   await loadRules()
+  await loadAnalysisRunHistory()
   const code = route.query.code as string | undefined
   if (code) {
     stockCode.value = code
@@ -275,13 +304,39 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- 右侧：分析历史 -->
-    <div>
+    <!-- 右侧：分析运行历史 + 本页历史 -->
+    <div class="space-y-4">
+      <!-- 分析运行历史（批量分析日志） -->
       <div class="bg-white rounded-xl border border-gray-200 overflow-hidden sticky top-4">
-        <div class="p-4 border-b border-gray-200">
-          <h3 class="text-sm font-semibold text-gray-700">分析历史</h3>
+        <div class="p-4 border-b border-gray-200 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">分析运行历史</h3>
+          <button @click="loadAnalysisRunHistory" class="text-xs text-indigo-600 hover:text-indigo-700">刷新</button>
         </div>
-        <div class="divide-y max-h-[75vh] overflow-y-auto">
+        <div class="divide-y max-h-[40vh] overflow-y-auto">
+          <div v-if="!analysisRunHistory.length" class="p-6 text-center text-gray-400 text-xs">暂无运行记录，请在「每日推荐」中执行立即分析</div>
+          <div v-for="r in analysisRunHistory" :key="r.id" class="p-3 text-left">
+            <div class="flex items-center justify-between gap-2 mb-1">
+              <span class="text-xs font-mono text-gray-500 truncate">{{ r.task_id }}</span>
+              <span class="text-xs px-1.5 py-0.5 rounded shrink-0" :class="runStatusCls(r.status)">{{ runStatusLabel(r.status) }}</span>
+            </div>
+            <div class="text-[11px] text-gray-500">
+              <div>开始 {{ formatRunTime(r.started_at) }}</div>
+              <div v-if="r.finished_at">结束 {{ formatRunTime(r.finished_at) }}</div>
+              <div v-if="r.status === 'completed' && r.result_count != null" class="text-green-600 mt-0.5">
+                推荐 {{ r.result_count }} 只 · {{ r.result_date || '-' }}
+              </div>
+              <div v-if="r.status === 'failed' && r.error_message" class="text-red-600 mt-0.5 truncate" :title="r.error_message">{{ r.error_message }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 本页分析历史（单只股票） -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="p-4 border-b border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-700">本页历史</h3>
+        </div>
+        <div class="divide-y max-h-[35vh] overflow-y-auto">
           <div v-if="!history.length" class="p-8 text-center text-gray-400 text-sm">暂无分析记录</div>
           <div v-for="(h, i) in history" :key="i"
                class="p-3 hover:bg-gray-50 cursor-pointer transition"

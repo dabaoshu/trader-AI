@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { fetchPresets, runScreener, fetchRecords, fetchRecordDetail, deleteRecord as apiDelete } from '../api'
-import type { PresetTemplate, ScreenerConditions, CustomRule, StockItem, ScreenerRecord, FieldOption, OpOption } from '../types'
+import {
+  fetchPresets, runScreener, fetchRecords, fetchRecordDetail, deleteRecord as apiDelete,
+  fetchScreenerTemplates, createScreenerTemplate, deleteScreenerTemplate,
+} from '../api'
+import type { PresetTemplate, ScreenerTemplate, ScreenerConditions, CustomRule, StockItem, ScreenerRecord, FieldOption, OpOption } from '../types'
 import ToastNotify from '../components/ToastNotify.vue'
 import AddToWatchlist from '../components/AddToWatchlist.vue'
 
@@ -45,9 +48,11 @@ const CONFIDENCE_OPTIONS = [
 const MARKET_OPTIONS = ['上海主板', '深圳主板', '中小板', '创业板']
 
 const presets = ref<PresetTemplate[]>([])
+const userTemplates = ref<ScreenerTemplate[]>([])
 const records = ref<ScreenerRecord[]>([])
 const loading = ref(false)
 const activePreset = ref('')
+const activeUserTemplateId = ref<number | null>(null)
 const toast = ref({ show: false, msg: '', type: 'info' })
 
 const form = reactive({
@@ -97,9 +102,11 @@ function resetForm() {
   form.markets = []
   customRules.value = []
   activePreset.value = ''
+  activeUserTemplateId.value = null
 }
 
 function applyPreset(p: PresetTemplate) {
+  activeUserTemplateId.value = null
   resetForm()
   activePreset.value = p.key
   form.recordName = p.name
@@ -118,6 +125,65 @@ function applyPreset(p: PresetTemplate) {
   if (c.confidence_levels) form.confidenceLevels = [...c.confidence_levels]
   if (c.markets) form.markets = [...c.markets]
   notify(`已加载模板「${p.name}」`, 'info')
+}
+
+function applyUserTemplate(t: ScreenerTemplate) {
+  resetForm()
+  activePreset.value = ''
+  activeUserTemplateId.value = t.id
+  form.recordName = t.name
+  const c = t.conditions
+  if (c.price_min != null) form.priceMin = c.price_min
+  if (c.price_max != null) form.priceMax = c.price_max
+  if (c.total_score_min != null) form.totalScoreMin = c.total_score_min
+  if (c.tech_score_min != null) form.techScoreMin = c.tech_score_min
+  if (c.auction_ratio_min != null) form.auctionRatioMin = c.auction_ratio_min
+  if (c.auction_ratio_max != null) form.auctionRatioMax = c.auction_ratio_max
+  if (c.rsi_min != null) form.rsiMin = c.rsi_min
+  if (c.rsi_max != null) form.rsiMax = c.rsi_max
+  if (c.market_cap_min != null) form.marketCapMin = c.market_cap_min
+  if (c.market_cap_max != null) form.marketCapMax = c.market_cap_max
+  if (c.gap_types) form.gapTypes = [...(c.gap_types || [])]
+  if (c.confidence_levels) form.confidenceLevels = [...(c.confidence_levels || [])]
+  if (c.markets) form.markets = [...(c.markets || [])]
+  if (c.keyword) form.keyword = c.keyword || ''
+  if (c.custom_rules?.length) {
+    customRules.value = c.custom_rules.map(r => ({
+      field: r.field,
+      op: r.op,
+      value: String(r.value),
+    }))
+  }
+  notify(`已加载我的模板「${t.name}」`, 'info')
+}
+
+async function loadUserTemplates() {
+  const res = await fetchScreenerTemplates(50)
+  if (res.success) userTemplates.value = res.data
+}
+
+async function saveAsTemplate() {
+  const name = form.recordName?.trim() || '未命名模板'
+  const conditions = gatherConditions()
+  const res = await createScreenerTemplate({ name, conditions })
+  if (res.success) {
+    notify('已保存为模板', 'success')
+    await loadUserTemplates()
+  } else {
+    notify(res.message ?? '保存失败', 'error')
+  }
+}
+
+async function removeUserTemplate(id: number) {
+  if (!confirm('确定删除该模板？')) return
+  const res = await deleteScreenerTemplate(id)
+  if (res.success) {
+    if (activeUserTemplateId.value === id) activeUserTemplateId.value = null
+    notify('已删除', 'success')
+    await loadUserTemplates()
+  } else {
+    notify(res.message ?? '删除失败', 'error')
+  }
 }
 
 function gatherConditions(): ScreenerConditions {
@@ -208,6 +274,7 @@ function confidenceCls(c: string): string {
 onMounted(async () => {
   const pRes = await fetchPresets()
   if (pRes.success) presets.value = pRes.data
+  await loadUserTemplates()
   await loadHistory()
 })
 </script>
@@ -232,17 +299,33 @@ onMounted(async () => {
         </div>
       </div>
 
+      <!-- 我的模板 -->
+      <div v-if="userTemplates.length" class="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">我的模板</h2>
+        <div class="flex flex-wrap gap-2">
+          <div v-for="t in userTemplates" :key="t.id"
+               class="flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all"
+               :class="activeUserTemplateId === t.id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-300'">
+            <button @click="applyUserTemplate(t)" class="text-sm font-medium text-left min-w-0 truncate max-w-[140px]">{{ t.name }}</button>
+            <button @click.stop="removeUserTemplate(t.id)" class="text-gray-400 hover:text-red-500 shrink-0" title="删除">×</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 自定义条件 -->
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <div class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-gray-700">自定义筛选条件</h2>
-          <button @click="resetForm" class="text-xs text-gray-500 hover:text-gray-700">重置</button>
+          <div class="flex items-center gap-2">
+            <button @click="saveAsTemplate" class="text-xs px-2 py-1.5 rounded-lg border border-indigo-500 text-indigo-600 hover:bg-indigo-50">保存为模板</button>
+            <button @click="resetForm" class="text-xs text-gray-500 hover:text-gray-700">重置</button>
+          </div>
         </div>
 
         <!-- 记录名称 -->
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">记录名称</label>
-          <input v-model="form.recordName" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="给本次选股起个名字（可选）" />
+          <input v-model="form.recordName" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="给本次选股起个名字（可选，保存为模板时用作模板名）" />
         </div>
 
         <!-- 价格 -->

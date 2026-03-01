@@ -20,6 +20,7 @@ const quotesLoading = ref(false)
 const toast = ref({ show: false, msg: '', type: 'info' })
 const lastQuoteTime = ref('')
 
+const activeTab = ref<'watchlist' | 'holding'>('watchlist')
 const editingGroupId = ref<number | null>(null)
 const editingName = ref('')
 
@@ -30,7 +31,21 @@ function notify(msg: string, type = 'info') {
   setTimeout(() => (toast.value.show = false), 3000)
 }
 
+const holdingGroupId = computed(() => groups.value.find(g => g.name === '持有股')?.id ?? null)
 const activeGroup = computed(() => groups.value.find(g => g.id === activeGroupId.value))
+
+function switchToWatchlistTab() {
+  activeTab.value = 'watchlist'
+  if (holdingGroupId.value != null && activeGroupId.value === holdingGroupId.value) {
+    const other = groups.value.find(g => g.name !== '持有股')
+    if (other) activeGroupId.value = other.id
+  }
+}
+
+function switchToHoldingTab() {
+  activeTab.value = 'holding'
+  if (holdingGroupId.value != null) activeGroupId.value = holdingGroupId.value
+}
 
 const enrichedStocks = computed(() =>
   stocks.value.map(s => ({
@@ -43,7 +58,10 @@ async function loadGroups() {
   const res = await fetchWatchlistGroups()
   if (res.success) {
     groups.value = res.data
-    if (!activeGroupId.value && res.data.length) activeGroupId.value = res.data[0].id
+    if (!activeGroupId.value && res.data.length) {
+      const nonHolding = res.data.find(g => g.name !== '持有股')
+      activeGroupId.value = (nonHolding ?? res.data[0]).id
+    }
   }
 }
 
@@ -172,6 +190,25 @@ onUnmounted(stopPolling)
 <template>
   <ToastNotify :show="toast.show" :message="toast.msg" :type="toast.type" />
 
+  <div class="space-y-4">
+    <!-- Tab: 自选股 | 持有股 -->
+    <div class="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+      <button
+        @click="switchToWatchlistTab()"
+        class="px-4 py-2 text-sm font-medium rounded-md transition"
+        :class="activeTab === 'watchlist' ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'"
+      >
+        自选股
+      </button>
+      <button
+        @click="switchToHoldingTab()"
+        class="px-4 py-2 text-sm font-medium rounded-md transition"
+        :class="activeTab === 'holding' ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'"
+      >
+        持有股
+      </button>
+    </div>
+
   <div class="flex gap-6 h-full">
     <!-- 左侧：分组 -->
     <div class="w-52 shrink-0">
@@ -193,8 +230,8 @@ onUnmounted(stopPolling)
                    @keyup.enter="confirmRename" @blur="confirmRename" @click.stop
                    class="flex-1 text-sm border border-indigo-400 rounded px-2 py-1 focus:outline-none" />
             <div v-if="editingGroupId !== g.id" class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition ml-1">
-              <button @click.stop="startRename(g.id, g.name)" class="text-gray-400 hover:text-indigo-600 p-0.5" title="重命名">✏</button>
-              <button v-if="groups.length > 1" @click.stop="doDeleteGroup(g.id)" class="text-gray-400 hover:text-red-500 p-0.5" title="删除">✕</button>
+              <button v-if="g.name !== '持有股'" @click.stop="startRename(g.id, g.name)" class="text-gray-400 hover:text-indigo-600 p-0.5" title="重命名">✏</button>
+              <button v-if="groups.length > 1 && g.name !== '持有股'" @click.stop="doDeleteGroup(g.id)" class="text-gray-400 hover:text-red-500 p-0.5" title="删除">✕</button>
             </div>
           </div>
         </div>
@@ -314,10 +351,11 @@ onUnmounted(stopPolling)
           <svg class="w-14 h-14 mx-auto mb-3" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/>
           </svg>
-          <p class="text-sm">暂无自选股</p>
-          <p class="text-xs mt-1">在其他页面的股票结果中点击 ☆自选 按钮添加</p>
+          <p class="text-sm">{{ activeTab === 'holding' ? '暂无持有股' : '暂无自选股' }}</p>
+          <p class="text-xs mt-1">在其他页面的股票结果中点击 ☆自选 按钮添加到对应分组</p>
         </div>
       </div>
     </div>
+  </div>
   </div>
 </template>

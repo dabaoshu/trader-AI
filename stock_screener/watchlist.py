@@ -49,6 +49,10 @@ class WatchlistManager:
         c.execute("SELECT COUNT(*) FROM watchlist_groups")
         if c.fetchone()[0] == 0:
             c.execute("INSERT INTO watchlist_groups (name, sort_order) VALUES ('默认自选', 0)")
+        # 保证存在「持有股」分组（sort_order=-1 使其排在最前）
+        c.execute("SELECT id FROM watchlist_groups WHERE name = '持有股'")
+        if c.fetchone() is None:
+            c.execute("INSERT INTO watchlist_groups (name, sort_order) VALUES ('持有股', -1)")
         conn.commit()
         conn.close()
 
@@ -59,7 +63,7 @@ class WatchlistManager:
     def list_groups(self) -> List[Dict]:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        c.execute("SELECT id, name, sort_order, created_at FROM watchlist_groups ORDER BY sort_order, id")
+        c.execute("SELECT id, name, sort_order, created_at FROM watchlist_groups ORDER BY sort_order ASC, id")
         groups = [{'id': r[0], 'name': r[1], 'sort_order': r[2], 'created_at': r[3]} for r in c.fetchall()]
         for g in groups:
             c.execute("SELECT COUNT(*) FROM watchlist_stocks WHERE group_id = ?", (g['id'],))
@@ -90,6 +94,11 @@ class WatchlistManager:
     def delete_group(self, group_id: int) -> bool:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
+        c.execute("SELECT name FROM watchlist_groups WHERE id = ?", (group_id,))
+        row = c.fetchone()
+        if row and row[0] == '持有股':
+            conn.close()
+            return False
         c.execute("DELETE FROM watchlist_stocks WHERE group_id = ?", (group_id,))
         c.execute("DELETE FROM watchlist_groups WHERE id = ?", (group_id,))
         ok = c.rowcount > 0
