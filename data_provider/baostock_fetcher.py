@@ -18,7 +18,7 @@ import logging
 import re
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Optional, Generator
+from typing import Optional, Generator, Dict, Any
 
 import pandas as pd
 from tenacity import (
@@ -303,7 +303,39 @@ class BaostockFetcher(BaseFetcher):
             logger.warning(f"Baostock 获取股票名称失败 {stock_code}: {e}")
         
         return None
-    
+
+    def get_stock_basic(self, stock_code: str) -> Optional[Dict]:
+        """
+        获取股票基础信息
+
+        使用 Baostock 的 query_stock_basic 接口，返回统一字段字典供业务使用。
+        """
+        try:
+            bs_code = self._convert_stock_code(stock_code)
+            with self._baostock_session() as bs:
+                rs = bs.query_stock_basic(code=bs_code)
+                if rs.error_code != '0':
+                    return None
+                data_list = []
+                while rs.next():
+                    data_list.append(rs.get_row_data())
+                if not data_list or not rs.fields:
+                    return None
+                row = dict(zip(rs.fields, data_list[0]))
+                out_date = (row.get('outDate') or '').strip()
+                return {
+                    'code': row.get('code', stock_code),
+                    'code_name': row.get('code_name', '未知'),
+                    'industry': row.get('industry', ''),
+                    'industryClassification': row.get('industryClassification', ''),
+                    'ipoDate': row.get('ipoDate', ''),
+                    'outDate': out_date,
+                    'listing_status': '上市' if not out_date else '退市',
+                }
+        except Exception as e:
+            logger.warning(f"Baostock 获取股票基础信息失败 {stock_code}: {e}")
+            return None
+
     def get_stock_list(self) -> Optional[pd.DataFrame]:
         """
         获取股票列表

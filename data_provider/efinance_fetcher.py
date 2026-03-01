@@ -40,7 +40,7 @@ from tenacity import (
 )
 
 from patch.eastmoney_patch import eastmoney_patch
-from src.config import get_config
+from config import get_config
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS
 from .realtime_types import (
     UnifiedRealtimeQuote, RealtimeSource,

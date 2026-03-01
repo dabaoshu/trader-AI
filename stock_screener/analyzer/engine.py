@@ -25,6 +25,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 warnings.filterwarnings('ignore')
 
 from stock_screener.analyzer.base_rule import BaseAnalysisRule
+from data_provider import DataFetcherManager
+from data_provider.base import normalize_stock_code
 
 logger = logging.getLogger(__name__)
 
@@ -142,34 +144,19 @@ class StockAnalysisEngine:
         return 'a_stock'
 
     def _fetch_price_data(self, code: str, market: str, days: int = 180) -> pd.DataFrame:
-        """通过 akshare 获取历史 K 线"""
+        """通过 data_provider 获取历史 K 线"""
         try:
-            import akshare as ak
-        except ImportError:
-            logger.error("akshare 未安装")
-            return pd.DataFrame()
-
-        end_date = datetime.now().strftime('%Y%m%d')
-        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
-
-        try:
-            if market == 'a_stock':
-                df = ak.stock_zh_a_hist(symbol=code, period='daily',
-                                        start_date=start_date, end_date=end_date, adjust='qfq')
-            elif market == 'hk_stock':
-                raw = code.lstrip('HK').lstrip('hk').zfill(5)
-                df = ak.stock_hk_hist(symbol=raw, period='daily',
-                                      start_date=start_date, end_date=end_date, adjust='qfq')
-            elif market == 'us_stock':
-                df = ak.stock_us_hist(symbol=code.upper(), period='daily',
-                                      start_date=start_date, end_date=end_date, adjust='qfq')
-            else:
-                return pd.DataFrame()
-
+            manager = DataFetcherManager()
+            normalized = normalize_stock_code(code)
+            df, _ = manager.get_daily_data(stock_code=normalized, days=days)
             if df is None or df.empty:
                 return pd.DataFrame()
-
-            return self._standardize_columns(df)
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
+                df = df.set_index('date')
+            if 'pct_chg' in df.columns and 'change_pct' not in df.columns:
+                df['change_pct'] = df['pct_chg']
+            return df
         except Exception as e:
             logger.warning(f"获取 {market} {code} 行情失败: {e}")
             return pd.DataFrame()
@@ -190,12 +177,10 @@ class StockAnalysisEngine:
 
     def _get_stock_name(self, code: str, market: str) -> str:
         try:
-            import akshare as ak
-            if market == 'a_stock':
-                info = ak.stock_individual_info_em(symbol=code)
-                if not info.empty:
-                    d = dict(zip(info['item'], info['value']))
-                    return d.get('股票简称', code)
+            manager = DataFetcherManager()
+            name = manager.get_stock_name(normalize_stock_code(code))
+            if name:
+                return name
         except Exception:
             pass
         return code

@@ -30,7 +30,10 @@ from tenacity import (
     retry_if_exception_type,
 )
 
-from src.analyzer import STOCK_NAME_MAP
+try:
+    from src.analyzer import STOCK_NAME_MAP
+except ModuleNotFoundError:
+    STOCK_NAME_MAP = {}
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -193,6 +196,16 @@ class BaseFetcher(ABC):
 
         Returns:
             Tuple: (领涨板块列表, 领跌板块列表)
+        """
+        return None
+
+    def get_stock_basic(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取股票基础信息（可选实现）
+
+        子类可覆盖。默认返回 None。
+        返回字典建议包含: code, code_name, industry, industryClassification,
+        ipoDate, outDate, listing_status 等。
         """
         return None
 
@@ -380,7 +393,7 @@ class DataFetcherManager:
         from .pytdx_fetcher import PytdxFetcher
         from .baostock_fetcher import BaostockFetcher
         from .yfinance_fetcher import YfinanceFetcher
-        from src.config import get_config
+        from config import get_config
 
         config = get_config()
 
@@ -528,10 +541,10 @@ class DataFetcherManager:
         # Normalize all codes
         stock_codes = [normalize_stock_code(c) for c in stock_codes]
 
-        from src.config import get_config
-        
+        from config import get_config
+
         config = get_config()
-        
+
         # 如果实时行情被禁用，跳过预取
         if not config.enable_realtime_quote:
             logger.debug("[预取] 实时行情功能已禁用，跳过预取")
@@ -606,7 +619,7 @@ class DataFetcherManager:
         from .realtime_types import get_realtime_circuit_breaker
         from .akshare_fetcher import _is_us_code
         from .us_index_mapping import is_us_index_code
-        from src.config import get_config
+        from config import get_config
 
         config = get_config()
 
@@ -794,7 +807,7 @@ class DataFetcherManager:
         stock_code = normalize_stock_code(stock_code)
 
         from .realtime_types import get_chip_circuit_breaker
-        from src.config import get_config
+        from config import get_config
 
         config = get_config()
 
@@ -988,3 +1001,77 @@ class DataFetcherManager:
                 logger.warning(f"[{fetcher.name}] 获取板块排行失败: {e}")
                 continue
         return [], []
+
+    def get_stock_list(self) -> Optional[pd.DataFrame]:
+        """
+        获取全市场股票列表（按优先级尝试各数据源）
+
+        Returns:
+            包含 code（6 位）、name 列的 DataFrame，全部失败返回 None
+        """
+        for fetcher in self._fetchers:
+            if not hasattr(fetcher, 'get_stock_list'):
+                continue
+            try:
+                df = fetcher.get_stock_list()
+                if df is not None and not df.empty and 'code' in df.columns:
+                    logger.info(f"[{fetcher.name}] 获取股票列表成功: {len(df)} 条")
+                    return df
+            except Exception as e:
+                logger.warning(f"[{fetcher.name}] 获取股票列表失败: {e}")
+                continue
+        return None
+
+    def get_stock_basic(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取股票基础信息（按优先级尝试各数据源）
+
+        Args:
+            stock_code: 股票代码（会做 normalize_stock_code）
+
+        Returns:
+            包含 code, code_name, industry, ipoDate 等字段的字典，失败返回 None
+        """
+        stock_code = normalize_stock_code(stock_code)
+        for fetcher in self._fetchers:
+            if not hasattr(fetcher, 'get_stock_basic'):
+                continue
+            try:
+                info = fetcher.get_stock_basic(stock_code)
+                if info is not None and isinstance(info, dict):
+                    logger.info(f"[{fetcher.name}] 获取股票基础信息成功: {stock_code}")
+                    return info
+            except Exception as e:
+                logger.warning(f"[{fetcher.name}] 获取股票基础信息失败: {e}")
+                continue
+        return None
+
+    def get_auction_data(self, stock_code: str) -> Dict[str, Any]:
+        """
+        获取集合竞价分时数据（A 股）
+
+        Args:
+            stock_code: 股票代码（会做 normalize_stock_code）
+
+        Returns:
+            包含 final_price, total_volume, data_points, status 的字典；
+            无可用数据源或失败时 status 为 'no_data'。
+        """
+        stock_code = normalize_stock_code(stock_code)
+        for fetcher in self._fetchers:
+            if not hasattr(fetcher, 'get_auction_data'):
+                continue
+            try:
+                data = fetcher.get_auction_data(stock_code)
+                if data is not None and data.get('status') == 'success':
+                    logger.info(f"[{fetcher.name}] 获取竞价数据成功: {stock_code}")
+                    return data
+            except Exception as e:
+                logger.warning(f"[{fetcher.name}] 获取竞价数据失败: {e}")
+                continue
+        return {
+            'final_price': 0,
+            'total_volume': 0,
+            'data_points': 0,
+            'status': 'no_data',
+        }

@@ -41,7 +41,7 @@ from tenacity import (
 )
 
 from patch.eastmoney_patch import eastmoney_patch
-from src.config import get_config
+from config import get_config
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS
 from .realtime_types import (
     UnifiedRealtimeQuote, ChipDistribution, RealtimeSource,
@@ -1319,6 +1319,59 @@ class AkshareFetcher(BaseFetcher):
         result['chip_distribution'] = self.get_chip_distribution(stock_code)
         
         return result
+
+    def get_auction_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取集合竞价分时数据（A 股）
+
+        使用 akshare stock_zh_a_hist_pre_min_em，筛选 09:15-09:25 时段，
+        返回与 daily_report_generator 兼容的字典结构。
+        """
+        import akshare as ak
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            pre_market_df = ak.stock_zh_a_hist_pre_min_em(
+                symbol=stock_code,
+                start_time="09:00:00",
+                end_time="09:30:00",
+            )
+            if pre_market_df is None or pre_market_df.empty:
+                return {
+                    'final_price': 0,
+                    'total_volume': 0,
+                    'data_points': 0,
+                    'status': 'no_data',
+                }
+            time_col = '时间' if '时间' in pre_market_df.columns else pre_market_df.columns[0]
+            auction_df = pre_market_df[
+                pre_market_df[time_col].astype(str).str.contains('09:1[5-9]|09:2[0-5]', na=False)
+            ]
+            if auction_df.empty:
+                return {
+                    'final_price': 0,
+                    'total_volume': 0,
+                    'data_points': 0,
+                    'status': 'no_data',
+                }
+            open_col = '开盘' if '开盘' in auction_df.columns else 'open'
+            vol_col = '成交量' if '成交量' in auction_df.columns else 'volume'
+            final_price = float(auction_df.iloc[-1][open_col])
+            total_volume = float(auction_df[vol_col].sum())
+            return {
+                'final_price': final_price,
+                'total_volume': total_volume,
+                'data_points': len(auction_df),
+                'status': 'success',
+            }
+        except Exception as e:
+            logger.warning(f"[Akshare] 获取竞价数据失败 {stock_code}: {e}")
+            return {
+                'final_price': 0,
+                'total_volume': 0,
+                'data_points': 0,
+                'status': 'no_data',
+            }
 
     def get_main_indices(self, region: str = "cn") -> Optional[List[Dict[str, Any]]]:
         """

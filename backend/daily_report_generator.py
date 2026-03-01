@@ -10,10 +10,12 @@ import json
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import baostock as bs
-import akshare as ak
 from tqdm import tqdm
 import warnings
+
+from data_provider import DataFetcherManager
+from data_provider.base import normalize_stock_code
+
 warnings.filterwarnings('ignore')
 
 class DailyReportGenerator:
@@ -37,65 +39,30 @@ class DailyReportGenerator:
         return True
     
     def get_stock_data_quick(self, symbol: str, days: int = 30) -> pd.DataFrame:
-        """快速获取股票数据"""
+        """快速获取股票数据（通过 data_provider）"""
         try:
-            end_date = datetime.now().strftime('%Y-%m-%d')
-            start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-            
-            rs = bs.query_history_k_data_plus(symbol,
-                'date,code,open,high,low,close,volume',
-                start_date=start_date, 
-                end_date=end_date,
-                frequency='d')
-            df = rs.get_data()
-            
-            if df.empty:
+            manager = DataFetcherManager()
+            code = normalize_stock_code(symbol)
+            df, _ = manager.get_daily_data(stock_code=code, days=days)
+            if df is None or df.empty:
                 return pd.DataFrame()
-            
-            # 数据转换
             for col in ['open', 'high', 'low', 'close', 'volume']:
                 if col in df.columns:
-                    df[col] = df[col].astype(str).str.split().str[0]
                     df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            return df.dropna()
-            
+            return df.dropna(subset=['close', 'volume'])
         except Exception:
             return pd.DataFrame()
     
     def get_auction_data_quick(self, symbol: str) -> dict:
-        """快速获取竞价数据"""
+        """快速获取竞价数据（通过 data_provider）"""
         try:
-            # 使用AKShare获取竞价数据
-            pre_market_df = ak.stock_zh_a_hist_pre_min_em(
-                symbol=symbol,
-                start_time="09:00:00", 
-                end_time="09:30:00"
-            )
-            
-            if pre_market_df.empty:
-                return self._get_default_auction()
-            
-            # 筛选竞价时间
-            auction_df = pre_market_df[
-                pre_market_df['时间'].str.contains('09:1[5-9]|09:2[0-5]')
-            ]
-            
-            if auction_df.empty:
-                return self._get_default_auction()
-            
-            final_price = float(auction_df.iloc[-1]['开盘'])
-            total_volume = auction_df['成交量'].sum()
-            
-            return {
-                'final_price': final_price,
-                'total_volume': total_volume,
-                'data_points': len(auction_df),
-                'status': 'success'
-            }
-            
+            manager = DataFetcherManager()
+            data = manager.get_auction_data(normalize_stock_code(symbol))
+            if data and data.get('status') == 'success':
+                return data
         except Exception:
-            return self._get_default_auction()
+            pass
+        return self._get_default_auction()
     
     def _get_default_auction(self) -> dict:
         """默认竞价数据"""

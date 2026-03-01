@@ -14,6 +14,10 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
+
+from data_provider import DataFetcherManager
+from data_provider.base import normalize_stock_code
+
 warnings.filterwarnings('ignore')
 
 class OptimizedStockAnalyzer:
@@ -77,67 +81,50 @@ class OptimizedStockAnalyzer:
             }
     
     def get_enhanced_stock_pool(self):
-        """获取增强的股票池 - 使用多种策略确保有数据"""
-        
-        # 策略1: 尝试使用baostock获取实时数据
+        """获取增强的股票池 - 使用 data_provider 或预定义池"""
         try:
-            import baostock as bs
-            lg = bs.login()
-            if lg.error_code == '0':
-                print("📊 使用BaoStock获取股票数据...")
-                stock_rs = bs.query_all_stock(day=datetime.now().strftime('%Y-%m-%d'))
-                stock_df = stock_rs.get_data()
-                bs.logout()
-                
-                if not stock_df.empty:
-                    print(f"✅ BaoStock成功获取 {len(stock_df)} 只股票")
-                    return self._process_baostock_data(stock_df)
+            manager = DataFetcherManager()
+            stock_df = manager.get_stock_list()
+            if stock_df is not None and not stock_df.empty and 'code' in stock_df.columns:
+                print(f"📊 使用 data_provider 获取股票列表: {len(stock_df)} 只")
+                return self._process_stock_list_data(stock_df)
         except Exception as e:
-            print(f"⚠️ BaoStock获取失败: {e}")
-        
-        # 策略2: 使用预定义的优质股票池
+            print(f"⚠️ data_provider 获取股票列表失败: {e}")
         print("📋 使用预定义优质股票池...")
         return self._get_predefined_stock_pool()
-    
-    def _process_baostock_data(self, stock_df):
-        """处理baostock数据"""
+
+    def _process_stock_list_data(self, stock_df: pd.DataFrame):
+        """处理股票列表（code 为 6 位，name 为名称）"""
         try:
-            # 按市场分类并增加样本数量
+            name_col = 'name' if 'name' in stock_df.columns else 'code_name'
+            if name_col not in stock_df.columns:
+                return []
             markets = {
-                '上海主板': stock_df[stock_df['code'].str.startswith('sh.6')],
-                '深圳主板': stock_df[stock_df['code'].str.startswith('sz.000')],
-                '中小板': stock_df[stock_df['code'].str.startswith('sz.002')],
-                '创业板': stock_df[stock_df['code'].str.startswith('sz.30')]
+                '上海主板': stock_df[stock_df['code'].astype(str).str.startswith('6')],
+                '深圳主板': stock_df[stock_df['code'].astype(str).str.startswith('000')],
+                '中小板': stock_df[stock_df['code'].astype(str).str.startswith('002')],
+                '创业板': stock_df[stock_df['code'].astype(str).str.startswith('30')],
             }
-            
             sample_stocks = []
             for market_name, market_stocks in markets.items():
                 if len(market_stocks) > 0:
-                    # 增加样本数量以提高选中概率
                     sample_size = min(50, len(market_stocks))
-                    if len(market_stocks) >= sample_size:
-                        sampled = market_stocks.sample(n=sample_size, random_state=42)
-                    else:
-                        sampled = market_stocks
+                    sampled = market_stocks.sample(n=sample_size, random_state=42) if len(market_stocks) >= sample_size else market_stocks
                     sample_stocks.append(sampled)
-            
             if sample_stocks:
                 final_sample = pd.concat(sample_stocks, ignore_index=True)
-                # 🛡️ 应用风险过滤
                 filtered_stocks = []
                 for _, row in final_sample.iterrows():
-                    is_risky, risk_reason = self._is_risky_stock(row['code'], row['code_name'])
+                    code, name = str(row['code']), str(row[name_col])
+                    is_risky, risk_reason = self._is_risky_stock(code, name)
                     if not is_risky:
-                        filtered_stocks.append((row['code'], row['code_name']))
+                        filtered_stocks.append((code, name))
                     else:
-                        print(f"⚠️ 过滤风险股票: {row['code']} {row['code_name']} - {risk_reason}")
-                
-                print(f"📊 BaoStock数据过滤后剩余 {len(filtered_stocks)} 只安全股票")
+                        print(f"⚠️ 过滤风险股票: {code} {name} - {risk_reason}")
+                print(f"📊 股票列表过滤后剩余 {len(filtered_stocks)} 只安全股票")
                 return filtered_stocks
-            
         except Exception as e:
-            print(f"⚠️ 处理BaoStock数据失败: {e}")
-        
+            print(f"⚠️ 处理股票列表失败: {e}")
         return []
     
     def _get_predefined_stock_pool(self, pool_key='default'):
@@ -207,35 +194,19 @@ class OptimizedStockAnalyzer:
         return self._analyze_with_simulated_data(symbol, stock_name, config)
     
     def _analyze_with_real_data(self, symbol, stock_name, config):
-        """使用真实数据进行分析"""
+        """使用真实数据进行分析（通过 data_provider）"""
         try:
-            import baostock as bs
-            lg = bs.login()
-            
-            # 获取历史数据
-            end_date = datetime.now().strftime('%Y-%m-%d')
-            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-            
-            rs = bs.query_history_k_data_plus(symbol,
-                'date,code,open,high,low,close,volume',
-                start_date=start_date, 
-                end_date=end_date,
-                frequency='d')
-            df = rs.get_data()
-            bs.logout()
-            
-            if df.empty or len(df) < 5:
+            manager = DataFetcherManager()
+            code = normalize_stock_code(symbol)
+            df, _ = manager.get_daily_data(stock_code=code, days=30)
+            if df is None or df.empty or len(df) < 5:
                 return None
-            
-            # 数据转换
             for col in ['open', 'high', 'low', 'close', 'volume']:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            df = df.dropna()
+            df = df.dropna(subset=['close'])
             if len(df) < 5:
                 return None
-            
             current_price = float(df['close'].iloc[-1])
             
             # 价格过滤

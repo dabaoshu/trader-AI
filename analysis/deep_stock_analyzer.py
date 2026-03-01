@@ -14,6 +14,10 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
+
+from data_provider import DataFetcherManager
+from data_provider.base import normalize_stock_code
+
 warnings.filterwarnings('ignore')
 
 import requests
@@ -114,35 +118,23 @@ class DeepStockAnalyzer:
         return data
     
     def _get_basic_info(self, symbol: str) -> Dict:
-        """获取基础信息"""
+        """获取基础信息（通过 data_provider）"""
         try:
-            # 使用baostock获取基础信息
-            import baostock as bs
-            lg = bs.login()
-            
-            # 获取股票基础信息
-            rs = bs.query_stock_basic(code=symbol)
-            basic_df = rs.get_data()
-            
-            if not basic_df.empty:
-                stock_info = basic_df.iloc[0]
-                result = {
-                    'code': stock_info.get('code', symbol),
-                    'code_name': stock_info.get('code_name', '未知'),
-                    'industry': stock_info.get('industry', ''),
-                    'industry_classification': stock_info.get('industryClassification', ''),
-                    'list_date': stock_info.get('ipoDate', ''),
-                    'listing_status': stock_info.get('outDate', '') == '' and '上市' or '退市'
+            manager = DataFetcherManager()
+            info = manager.get_stock_basic(normalize_stock_code(symbol))
+            if info and isinstance(info, dict):
+                out_date = info.get('outDate') or ''
+                return {
+                    'code': info.get('code', symbol),
+                    'code_name': info.get('code_name', '未知'),
+                    'industry': info.get('industry', ''),
+                    'industry_classification': info.get('industryClassification', ''),
+                    'list_date': info.get('ipoDate', ''),
+                    'listing_status': '上市' if not out_date else '退市',
                 }
-            else:
-                result = self._get_fallback_basic_info(symbol)
-            
-            bs.logout()
-            return result
-            
         except Exception as e:
             print(f"⚠️ 获取基础信息失败: {e}")
-            return self._get_fallback_basic_info(symbol)
+        return self._get_fallback_basic_info(symbol)
     
     def _get_fallback_basic_info(self, symbol: str) -> Dict:
         """获取后备基础信息"""
@@ -175,53 +167,35 @@ class DeepStockAnalyzer:
         }
     
     def _get_price_data(self, symbol: str, days: int = 60) -> Dict:
-        """获取价格数据"""
+        """获取价格数据（通过 data_provider）"""
         try:
-            import baostock as bs
-            lg = bs.login()
-            
-            end_date = datetime.now().strftime('%Y-%m-%d')
-            start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-            
-            # 获取日K数据
-            rs = bs.query_history_k_data_plus(symbol,
-                'date,open,high,low,close,volume,amount,turn',
-                start_date=start_date, 
-                end_date=end_date,
-                frequency='d')
-            df = rs.get_data()
-            bs.logout()
-            
-            if df.empty:
+            manager = DataFetcherManager()
+            df, _ = manager.get_daily_data(stock_code=normalize_stock_code(symbol), days=days)
+            if df is None or df.empty or len(df) < 5:
                 return self._get_simulated_price_data(symbol)
-            
-            # 数据转换
-            for col in ['open', 'high', 'low', 'close', 'volume', 'amount', 'turn']:
+            for col in ['open', 'high', 'low', 'close', 'volume', 'amount']:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            df = df.dropna()
-            
+            df = df.dropna(subset=['close', 'volume'])
             if len(df) < 5:
                 return self._get_simulated_price_data(symbol)
-            
             current = df.iloc[-1]
             prev = df.iloc[-2] if len(df) > 1 else current
-            
+            turnover_rate = float(current.get('turn', 0)) if 'turn' in df.columns else 0.0
+            amount = float(current.get('amount', 0)) if 'amount' in df.columns else 0.0
             return {
                 'current_price': float(current['close']),
                 'prev_close': float(prev['close']),
                 'price_change': float(current['close'] - prev['close']),
-                'price_change_pct': float((current['close'] - prev['close']) / prev['close'] * 100),
+                'price_change_pct': float((current['close'] - prev['close']) / prev['close'] * 100) if prev['close'] else 0,
                 'high_52w': float(df['high'].max()),
                 'low_52w': float(df['low'].min()),
                 'avg_volume_10d': float(df['volume'].tail(10).mean()),
                 'current_volume': float(current['volume']),
-                'turnover_rate': float(current.get('turn', 0)),
-                'amount': float(current.get('amount', 0)),
-                'price_history': df.to_dict('records')
+                'turnover_rate': turnover_rate,
+                'amount': amount,
+                'price_history': df.to_dict('records'),
             }
-            
         except Exception as e:
             print(f"⚠️ 获取价格数据失败: {e}")
             return self._get_simulated_price_data(symbol)

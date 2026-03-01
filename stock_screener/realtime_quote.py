@@ -3,7 +3,7 @@
 """
 实时行情查询模块
 
-通过 akshare 批量获取 A 股实时行情数据（当前价/涨跌幅/市盈率/市净率/成交量等）。
+通过 data_provider 批量获取 A 股实时行情数据（当前价/涨跌幅/市盈率/市净率/成交量等）。
 内置简单缓存，避免短时间内重复请求。
 """
 
@@ -12,11 +12,52 @@ import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
+from data_provider import DataFetcherManager
+from data_provider.base import normalize_stock_code
+
 logger = logging.getLogger(__name__)
 
 _cache: Dict[str, Any] = {}
 _cache_ts: float = 0
 _CACHE_TTL = 3
+
+
+def _sf(v: Any, d: float = 0.0) -> float:
+    """安全转 float，NaN 或异常时返回默认值"""
+    try:
+        x = float(v)
+        return d if (x != x) else x
+    except (TypeError, ValueError):
+        return d
+
+
+def _quote_to_dict(quote: Any, symbol: str) -> Dict[str, Any]:
+    """将 UnifiedRealtimeQuote 转为模块对外 dict 结构"""
+    if quote is None:
+        return _empty_quote(symbol)
+    return {
+        'symbol': symbol,
+        'name': getattr(quote, 'name', '') or '',
+        'current_price': _sf(getattr(quote, 'price', None)),
+        'change_pct': _sf(getattr(quote, 'change_pct', None)),
+        'change_amount': _sf(getattr(quote, 'change_amount', None)),
+        'volume': int(_sf(getattr(quote, 'volume', None))) if getattr(quote, 'volume', None) is not None else 0,
+        'turnover': _sf(getattr(quote, 'amount', None)),
+        'amplitude': _sf(getattr(quote, 'amplitude', None)),
+        'high': _sf(getattr(quote, 'high', None)),
+        'low': _sf(getattr(quote, 'low', None)),
+        'open': _sf(getattr(quote, 'open_price', None)),
+        'prev_close': _sf(getattr(quote, 'pre_close', None)),
+        'volume_ratio': _sf(getattr(quote, 'volume_ratio', None)),
+        'turnover_rate': _sf(getattr(quote, 'turnover_rate', None)),
+        'pe_ratio': _sf(getattr(quote, 'pe_ratio', None)),
+        'pb_ratio': _sf(getattr(quote, 'pb_ratio', None)),
+        'total_market_cap': _sf(getattr(quote, 'total_mv', None)),
+        'circulating_market_cap': _sf(getattr(quote, 'circ_mv', None)),
+        'speed_60d': _sf(getattr(quote, 'change_60d', None)),
+        'year_to_date': 0.0,
+        'updated_at': datetime.now().strftime('%H:%M:%S'),
+    }
 
 
 def fetch_realtime_quotes(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -34,70 +75,21 @@ def fetch_realtime_quotes(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
             return hit
 
     try:
-        all_quotes = _fetch_a_stock_spot()
-        _cache = all_quotes
+        manager = DataFetcherManager()
+        if symbols:
+            manager.prefetch_realtime_quotes([normalize_stock_code(s) for s in symbols])
+        result: Dict[str, Dict[str, Any]] = {}
+        for s in symbols:
+            code = normalize_stock_code(s)
+            quote = manager.get_realtime_quote(code)
+            result[s] = _quote_to_dict(quote, s)
+        _cache = result
         _cache_ts = time.time()
+        logger.info(f"实时行情: 已获取 {len(result)} 只")
+        return result
     except Exception as e:
         logger.warning(f"获取实时行情失败: {e}")
-        all_quotes = _cache
-
-    return {s: all_quotes.get(s, _empty_quote(s)) for s in symbols}
-
-
-def _fetch_a_stock_spot() -> Dict[str, Dict[str, Any]]:
-    """从 akshare 获取全市场 A 股实时行情快照"""
-    import akshare as ak
-
-    df = ak.stock_zh_a_spot_em()
-    if df is None or df.empty:
-        return {}
-
-    result: Dict[str, Dict[str, Any]] = {}
-    for _, row in df.iterrows():
-        code = str(row.get('代码', ''))
-        if not code:
-            continue
-
-        if code.startswith('6') or code.startswith('9'):
-            full_code = f"sh.{code}"
-        else:
-            full_code = f"sz.{code}"
-
-        def sf(v, d=0.0):
-            try:
-                v = float(v)
-                if v != v:
-                    return d
-                return v
-            except Exception:
-                return d
-
-        result[full_code] = {
-            'symbol': full_code,
-            'name': str(row.get('名称', '')),
-            'current_price': sf(row.get('最新价')),
-            'change_pct': sf(row.get('涨跌幅')),
-            'change_amount': sf(row.get('涨跌额')),
-            'volume': sf(row.get('成交量')),
-            'turnover': sf(row.get('成交额')),
-            'amplitude': sf(row.get('振幅')),
-            'high': sf(row.get('最高')),
-            'low': sf(row.get('最低')),
-            'open': sf(row.get('今开')),
-            'prev_close': sf(row.get('昨收')),
-            'volume_ratio': sf(row.get('量比')),
-            'turnover_rate': sf(row.get('换手率')),
-            'pe_ratio': sf(row.get('市盈率-动态')),
-            'pb_ratio': sf(row.get('市净率')),
-            'total_market_cap': sf(row.get('总市值')),
-            'circulating_market_cap': sf(row.get('流通市值')),
-            'speed_60d': sf(row.get('60日涨跌幅')),
-            'year_to_date': sf(row.get('年初至今涨跌幅')),
-            'updated_at': datetime.now().strftime('%H:%M:%S'),
-        }
-
-    logger.info(f"实时行情快照: {len(result)} 只股票")
-    return result
+        return {s: _cache.get(s, _empty_quote(s)) for s in symbols}
 
 
 def _empty_quote(symbol: str) -> Dict[str, Any]:

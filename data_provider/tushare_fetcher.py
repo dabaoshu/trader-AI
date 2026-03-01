@@ -33,7 +33,7 @@ from tenacity import (
 
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS
 from .realtime_types import UnifiedRealtimeQuote
-from src.config import get_config
+from config import get_config
 import os
 
 logger = logging.getLogger(__name__)
