@@ -16,7 +16,6 @@ from dotenv import load_dotenv
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.services.email_config import EmailSender
 from backend.daily_report_generator import DailyReportGenerator
 from analysis.trading_day_scheduler import TradingDayScheduler
 from stock_screener.screener import StockScreener
@@ -122,7 +121,6 @@ class WebAppManager:
         return {
             'scheduler_running': scheduler_instance is not None and scheduler_instance.is_running,
             'today_recommendations': len(self.get_recommendations(datetime.now().strftime('%Y-%m-%d'))),
-            'email_configured': all([os.getenv('SENDER_EMAIL'), os.getenv('SENDER_PASSWORD'), os.getenv('RECIPIENT_EMAILS')]),
             'last_update': self._last_update(),
             'system_health': 'good',
         }
@@ -372,38 +370,6 @@ def api_stop_scheduler():
             scheduler_instance.stop_scheduler()
             scheduler_instance = None
         return jsonify({'success': True, 'message': '调度器已停止'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-
-
-# =====================================================================
-# 邮件 API
-# =====================================================================
-
-@app.route('/api/email/config', methods=['GET'])
-def api_get_email_config():
-    load_dotenv(override=True)
-    return jsonify({'success': True, 'data': {
-        'sender_email': os.getenv('SENDER_EMAIL', ''),
-        'recipient_emails': os.getenv('RECIPIENT_EMAILS', ''),
-        'email_provider': os.getenv('EMAIL_PROVIDER', 'gmail'),
-        'configured': all([os.getenv('SENDER_EMAIL'), os.getenv('SENDER_PASSWORD'), os.getenv('RECIPIENT_EMAILS')]),
-    }})
-
-
-@app.route('/api/email/test', methods=['POST'])
-def api_test_email():
-    try:
-        load_dotenv(override=True)
-        sender = EmailSender()
-        if not sender.sender_email or not sender.sender_password:
-            return jsonify({'success': False, 'message': '邮件未配置'})
-        from backend.app import web_manager as wm
-        recs = wm.get_recommendations(datetime.now().strftime('%Y-%m-%d'), 10)
-        test_data = {'date': datetime.now().strftime('%Y-%m-%d'), 'analysis_time': datetime.now().strftime('%H:%M:%S'),
-                     'recommendations': recs, 'market_summary': {'total_analyzed': 0, 'avg_score': 0}, 'auction_analysis': {}}
-        ok = sender.send_daily_report(test_data)
-        return jsonify({'success': ok, 'message': '发送成功' if ok else '发送失败'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 

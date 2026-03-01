@@ -87,19 +87,19 @@ class TradingDayScheduler:
                     return
                 
                 if not self.should_send_report():
-                    logging.info(f"📭 今日报告已发送，跳过执行")
+                    logging.info(f"📭 今日报告已生成，跳过执行")
                     return
                 
-                # 执行分析并发送报告
-                logging.info("📊 开始生成和发送交易日报...")
+                # 执行分析并生成报告
+                logging.info("📊 开始生成交易日报...")
                 success = self.report_generator.send_daily_report()
                 
                 if success:
                     self.report_sent_today = True
                     self.last_report_date = today
-                    logging.info(f"✅ 交易日报发送成功! {today} {current_time}")
+                    logging.info(f"✅ 交易日报生成成功! {today} {current_time}")
                 else:
-                    logging.error(f"❌ 交易日报发送失败! {today} {current_time}")
+                    logging.error(f"❌ 交易日报生成失败! {today} {current_time}")
                 
             except Exception as e:
                 logging.error(f"❌ 执行每日分析时出错: {e}")
@@ -128,12 +128,12 @@ class TradingDayScheduler:
         try:
             today = datetime.now().strftime('%Y-%m-%d')
             
-            # 如果今天还没发送报告，则补发
+            # 如果今天还没生成报告，则补生成
             if not self.report_sent_today or self.last_report_date != today:
-                logging.info("📋 执行盘后补发报告...")
+                logging.info("📋 执行盘后补生成报告...")
                 self.execute_daily_analysis()
             else:
-                logging.info("📭 今日报告已发送，无需补发")
+                logging.info("📭 今日报告已生成，无需补发")
                 
         except Exception as e:
             logging.error(f"❌ 盘后补发时出错: {e}")

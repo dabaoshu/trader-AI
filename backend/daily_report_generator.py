@@ -16,13 +16,10 @@ from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 
-from backend.services.email_config import EmailSender
-
 class DailyReportGenerator:
     """交易日报生成器"""
-    
+
     def __init__(self):
-        self.email_sender = EmailSender()
         self.analysis_results = {}
         self.report_data = {}
         
@@ -427,110 +424,32 @@ class DailyReportGenerator:
             bs.logout()
     
     def send_daily_report(self) -> bool:
-        """发送每日报告"""
+        """生成每日报告（仅生成与落盘，不发送邮件）"""
         try:
-            # 生成报告
             report_data = self.generate_daily_report()
-            
             if not report_data:
-                print("📭 无报告数据，跳过邮件发送")
+                print("📭 无报告数据，跳过")
                 return False
-            
-            # 发送邮件
-            print("📧 发送日报邮件...")
-            success = self.email_sender.send_daily_report(report_data)
-            
-            if success:
-                print("✅ 日报邮件发送成功!")
-                return True
-            else:
-                print("❌ 日报邮件发送失败")
-                return False
-                
+            print("✅ 日报生成完成")
+            return True
         except Exception as e:
-            print(f"❌ 发送日报过程出错: {e}")
+            print(f"❌ 生成日报过程出错: {e}")
             return False
 
-# 快速测试版本
 def quick_test_report():
-    """快速测试报告生成"""
+    """快速测试报告生成（仅生成，不发送邮件）"""
     print("🧪 快速测试日报生成...")
-    
     generator = DailyReportGenerator()
-    
-    # 模拟报告数据
-    mock_data = {
-        'date': datetime.now().strftime('%Y-%m-%d'),
-        'analysis_time': datetime.now().strftime('%H:%M:%S'),
-        'recommendations': [
-            {
-                'symbol': 'sh.600000',
-                'stock_name': '浦发银行',
-                'market': '上海主板',
-                'current_price': 13.65,
-                'total_score': 0.856,
-                'tech_score': 0.750,
-                'auction_score': 0.720,
-                'auction_ratio': 1.2,
-                'gap_type': 'gap_up',
-                'capital_bias': 0.68,
-                'rsi': 65.2,
-                'volume_ratio': 1.3,
-                'entry_price': 13.65,
-                'stop_loss': 12.56,
-                'target_price': 15.70,
-                'confidence': 'very_high',
-                'strategy': '温和高开，开盘可买'
-            },
-            {
-                'symbol': 'sz.000001',
-                'stock_name': '平安银行',
-                'market': '深圳主板', 
-                'current_price': 12.38,
-                'total_score': 0.789,
-                'tech_score': 0.680,
-                'auction_score': 0.650,
-                'auction_ratio': 0.8,
-                'gap_type': 'flat',
-                'capital_bias': 0.55,
-                'rsi': 58.1,
-                'volume_ratio': 1.1,
-                'entry_price': 12.38,
-                'stop_loss': 11.39,
-                'target_price': 14.24,
-                'confidence': 'high',
-                'strategy': '平开强势，关注买入'
-            }
-        ],
-        'market_summary': {
-            'total_analyzed': 60,
-            'total_recommended': 2,
-            'avg_score': 0.823
-        },
-        'auction_analysis': {
-            'avg_auction_ratio': 1.0,
-            'gap_up_count': 25,
-            'flat_count': 20,
-            'gap_down_count': 15
-        }
-    }
-    
-    # 测试邮件发送
-    success = generator.email_sender.send_daily_report(mock_data)
-    
-    if success:
-        print("✅ 测试邮件发送成功!")
+    report = generator.generate_daily_report()
+    if report:
+        print("✅ 测试报告生成成功")
     else:
-        print("❌ 测试邮件发送失败，请检查邮件配置")
+        print("❌ 测试报告生成失败")
 
 if __name__ == "__main__":
-    # 选择运行模式
     import sys
-    
     if len(sys.argv) > 1 and sys.argv[1] == 'test':
-        # 测试模式
         quick_test_report()
     else:
-        # 正常模式
         generator = DailyReportGenerator()
         generator.send_daily_report()

@@ -10,7 +10,6 @@ const router = useRouter()
 interface SystemStatus {
   scheduler_running: boolean
   today_recommendations: number
-  email_configured: boolean
   last_update: string
   system_health: string
   trading_mode: string
@@ -249,13 +248,6 @@ onUnmounted(() => {
         </div>
         <div class="text-xs text-gray-500 mt-1">调度系统</div>
         <div class="mt-3 text-xs text-gray-400">{{ status?.scheduler_running ? '自动运行中' : '手动模式' }}</div>
-      </div>
-      <div class="bg-white rounded-xl border border-gray-200 p-5 text-center">
-        <div class="text-3xl font-bold" :class="status?.email_configured ? 'text-green-600' : 'text-amber-500'">
-          {{ status?.email_configured ? '✓' : '✗' }}
-        </div>
-        <div class="text-xs text-gray-500 mt-1">邮件推送</div>
-        <div class="mt-3 text-xs text-gray-400">{{ status?.email_configured ? '已配置' : '未配置' }}</div>
       </div>
       <div class="bg-white rounded-xl border border-gray-200 p-5 text-center">
         <div class="text-lg font-bold text-gray-700 truncate">{{ status?.last_update ?? '-' }}</div>
