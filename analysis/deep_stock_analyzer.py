@@ -23,82 +23,16 @@ warnings.filterwarnings('ignore')
 import requests
 import time
 from typing import Dict, List, Optional, Tuple
-import sqlite3
+
+from models import DeepAnalysis, get_session_context, init_db
+
 
 class DeepStockAnalyzer:
     """深度股票分析引擎 - 集成LLM专业分析"""
-    
+
     def __init__(self):
-        self.db_path = "data/cchan_web.db"
         self.analysis_cache = {}
-        self.init_analysis_database()
-        
-    def init_analysis_database(self):
-        """初始化深度分析数据库"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # 创建深度分析结果表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS deep_analysis (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                stock_name TEXT,
-                analysis_date TEXT,
-                
-                -- 基础数据
-                current_price REAL,
-                price_change_pct REAL,
-                volume_ratio REAL,
-                market_cap_billion REAL,
-                
-                -- 技术指标详细数据
-                rsi_14 REAL,
-                macd_signal TEXT,
-                ma5 REAL,
-                ma10 REAL,
-                ma20 REAL,
-                ma60 REAL,
-                bollinger_position REAL,
-                
-                -- 资金流向数据
-                main_inflow REAL,
-                retail_inflow REAL,
-                institutional_inflow REAL,
-                net_inflow REAL,
-                
-                -- 竞价分析
-                auction_ratio REAL,
-                auction_volume_ratio REAL,
-                gap_type TEXT,
-                
-                -- LLM分析结果
-                llm_analysis_text TEXT,
-                investment_rating TEXT,
-                confidence_level TEXT,
-                risk_assessment TEXT,
-                
-                -- 投资建议
-                buy_point TEXT,
-                sell_point TEXT,
-                stop_loss_price REAL,
-                target_price REAL,
-                expected_return_pct REAL,
-                holding_period_days INTEGER,
-                position_suggestion REAL,
-                
-                -- 评分
-                technical_score REAL,
-                fundamental_score REAL,
-                sentiment_score REAL,
-                total_score REAL,
-                
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
+        init_db()
     
     def get_comprehensive_stock_data(self, symbol: str) -> Dict:
         """获取股票全量数据 - 分时、日K、资金流等"""
@@ -978,49 +912,68 @@ class DeepStockAnalyzer:
             return {}
     
     def _save_deep_analysis(self, analysis: Dict):
-        """保存深度分析结果到数据库"""
+        """保存深度分析结果到数据库（按 symbol + analysis_date upsert）"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # 提取数据
-            symbol = analysis['symbol']
-            basic = analysis['basic_info']
-            price = analysis['price_data']
-            tech = analysis['technical_indicators']
-            capital = analysis['capital_flow']
-            auction = analysis['auction_data']
-            fundamental = analysis['fundamental_data']
-            
-            cursor.execute('''
-                INSERT OR REPLACE INTO deep_analysis (
-                    symbol, stock_name, analysis_date,
-                    current_price, price_change_pct, volume_ratio, market_cap_billion,
-                    rsi_14, macd_signal, ma5, ma10, ma20, ma60, bollinger_position,
-                    main_inflow, retail_inflow, institutional_inflow, net_inflow,
-                    auction_ratio, auction_volume_ratio, gap_type,
-                    llm_analysis_text, investment_rating, confidence_level, risk_assessment,
-                    buy_point, sell_point, stop_loss_price, target_price, 
-                    expected_return_pct, holding_period_days, position_suggestion,
-                    technical_score, fundamental_score, sentiment_score, total_score
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                symbol, basic['code_name'], analysis['analysis_date'],
-                price['current_price'], price['price_change_pct'], 
-                price['current_volume'] / price['avg_volume_10d'] if price['avg_volume_10d'] > 0 else 1.0,
-                fundamental['market_cap_billion'],
-                tech['rsi_14'], tech['macd_signal'], tech['ma5'], tech['ma10'], tech['ma20'], tech['ma60'], tech['bollinger_position'],
-                capital['main_inflow'], capital['retail_inflow'], capital['institutional_inflow'], capital['net_inflow'],
-                auction['auction_ratio'], auction['auction_volume_ratio'], auction['gap_type'],
-                analysis['llm_analysis_text'], analysis['investment_rating'], analysis['confidence_level'], analysis['risk_assessment'],
-                analysis['buy_point'], analysis['sell_point'], analysis['stop_loss_price'], analysis['target_price'],
-                analysis['expected_return_pct'], analysis['holding_period_days'], analysis['position_suggestion'],
-                analysis['technical_score'], analysis['fundamental_score'], analysis['sentiment_score'], analysis['total_score']
-            ))
-            
-            conn.commit()
-            conn.close()
-            
+            symbol = analysis["symbol"]
+            basic = analysis["basic_info"]
+            price = analysis["price_data"]
+            tech = analysis["technical_indicators"]
+            capital = analysis["capital_flow"]
+            auction = analysis["auction_data"]
+            fundamental = analysis["fundamental_data"]
+            ad = analysis["analysis_date"]
+            vol_ratio = (
+                price["current_volume"] / price["avg_volume_10d"]
+                if price.get("avg_volume_10d", 0) > 0
+                else 1.0
+            )
+            session = get_session_context()
+            try:
+                row = (
+                    session.query(DeepAnalysis)
+                    .filter(
+                        DeepAnalysis.symbol == symbol,
+                        DeepAnalysis.analysis_date == ad,
+                    )
+                    .first()
+                )
+                if not row:
+                    row = DeepAnalysis(symbol=symbol, stock_name=basic.get("code_name"), analysis_date=ad)
+                    session.add(row)
+                row.stock_name = basic.get("code_name")
+                row.current_price = price.get("current_price")
+                row.price_change_pct = price.get("price_change_pct")
+                row.volume_ratio = vol_ratio
+                row.market_cap_billion = fundamental.get("market_cap_billion")
+                row.rsi_14 = tech.get("rsi_14")
+                row.macd_signal = tech.get("macd_signal")
+                row.ma5, row.ma10, row.ma20, row.ma60 = tech.get("ma5"), tech.get("ma10"), tech.get("ma20"), tech.get("ma60")
+                row.bollinger_position = tech.get("bollinger_position")
+                row.main_inflow = capital.get("main_inflow")
+                row.retail_inflow = capital.get("retail_inflow")
+                row.institutional_inflow = capital.get("institutional_inflow")
+                row.net_inflow = capital.get("net_inflow")
+                row.auction_ratio = auction.get("auction_ratio")
+                row.auction_volume_ratio = auction.get("auction_volume_ratio")
+                row.gap_type = auction.get("gap_type")
+                row.llm_analysis_text = analysis.get("llm_analysis_text")
+                row.investment_rating = analysis.get("investment_rating")
+                row.confidence_level = analysis.get("confidence_level")
+                row.risk_assessment = analysis.get("risk_assessment")
+                row.buy_point = analysis.get("buy_point")
+                row.sell_point = analysis.get("sell_point")
+                row.stop_loss_price = analysis.get("stop_loss_price")
+                row.target_price = analysis.get("target_price")
+                row.expected_return_pct = analysis.get("expected_return_pct")
+                row.holding_period_days = analysis.get("holding_period_days")
+                row.position_suggestion = analysis.get("position_suggestion")
+                row.technical_score = analysis.get("technical_score")
+                row.fundamental_score = analysis.get("fundamental_score")
+                row.sentiment_score = analysis.get("sentiment_score")
+                row.total_score = analysis.get("total_score")
+                session.commit()
+            finally:
+                session.close()
         except Exception as e:
             print(f"⚠️ 保存深度分析失败: {e}")
 

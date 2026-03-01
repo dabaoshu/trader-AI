@@ -8,7 +8,6 @@
 from flask import Flask, request, jsonify
 import os
 import json
-import sqlite3
 from datetime import datetime, timedelta
 import threading
 from dotenv import load_dotenv
@@ -23,6 +22,13 @@ from stock_screener.models import ScreenerRecordManager, ScreenerTemplateManager
 from stock_screener.analyzer.ai_model import get_ai_model_manager
 from stock_screener.analyzer.engine import StockAnalysisEngine
 from stock_screener.watchlist import WatchlistManager
+from models import (
+    get_session_context,
+    init_db,
+    StockRecommendation,
+    SystemConfig,
+    AnalysisRun,
+)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'smart-stock-assistant')
@@ -56,74 +62,52 @@ scheduler_thread = None
 
 
 class WebAppManager:
-    """核心数据管理器 — 操作 SQLite"""
+    """核心数据管理器 — 使用 SQLAlchemy ORM 操作 data/cchan_web.db"""
 
     def __init__(self):
-        self.db_path = "data/cchan_web.db"
-        self._init_db()
-
-    def _init_db(self):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS stock_recommendations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL, symbol TEXT NOT NULL, stock_name TEXT,
-            market TEXT, current_price REAL, total_score REAL,
-            tech_score REAL, auction_score REAL, auction_ratio REAL,
-            gap_type TEXT, confidence TEXT, strategy TEXT,
-            entry_price REAL, stop_loss REAL, target_price REAL,
-            status TEXT DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS system_config (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            config_key TEXT UNIQUE NOT NULL, config_value TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS system_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            level TEXT NOT NULL, message TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS analysis_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id TEXT NOT NULL,
-            status TEXT NOT NULL,
-            started_at TEXT,
-            finished_at TEXT,
-            result_count INTEGER,
-            result_date TEXT,
-            error_message TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        conn.commit()
-        conn.close()
+        init_db()
 
     def get_recommendations(self, date=None, limit=50):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        if date:
-            c.execute('SELECT * FROM stock_recommendations WHERE date=? ORDER BY total_score DESC LIMIT ?', (date, limit))
-        else:
-            c.execute('SELECT * FROM stock_recommendations ORDER BY created_at DESC LIMIT ?', (limit,))
-        cols = [d[0] for d in c.description]
-        rows = [dict(zip(cols, r)) for r in c.fetchall()]
-        conn.close()
-        return rows
+        session = get_session_context()
+        try:
+            q = session.query(StockRecommendation)
+            if date:
+                q = q.filter(StockRecommendation.date == date).order_by(
+                    StockRecommendation.total_score.desc()
+                )
+            else:
+                q = q.order_by(StockRecommendation.created_at.desc())
+            rows = q.limit(limit).all()
+            return [r.to_dict() for r in rows]
+        finally:
+            session.close()
 
     def save_recommendations(self, recs, date):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('DELETE FROM stock_recommendations WHERE date=?', (date,))
-        for s in recs:
-            c.execute('''INSERT INTO stock_recommendations
-                (date,symbol,stock_name,market,current_price,total_score,
-                 tech_score,auction_score,auction_ratio,gap_type,confidence,
-                 strategy,entry_price,stop_loss,target_price)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (
-                date, s.get('symbol'), s.get('stock_name'), s.get('market'),
-                s.get('current_price'), s.get('total_score'), s.get('tech_score'),
-                s.get('auction_score'), s.get('auction_ratio'), s.get('gap_type'),
-                s.get('confidence'), s.get('strategy'),
-                s.get('entry_price'), s.get('stop_loss'), s.get('target_price')))
-        conn.commit()
-        conn.close()
+        session = get_session_context()
+        try:
+            session.query(StockRecommendation).filter(StockRecommendation.date == date).delete()
+            for s in recs:
+                rec = StockRecommendation(
+                    date=date,
+                    symbol=s.get('symbol'),
+                    stock_name=s.get('stock_name'),
+                    market=s.get('market'),
+                    current_price=s.get('current_price'),
+                    total_score=s.get('total_score'),
+                    tech_score=s.get('tech_score'),
+                    auction_score=s.get('auction_score'),
+                    auction_ratio=s.get('auction_ratio'),
+                    gap_type=s.get('gap_type'),
+                    confidence=s.get('confidence'),
+                    strategy=s.get('strategy'),
+                    entry_price=s.get('entry_price'),
+                    stop_loss=s.get('stop_loss'),
+                    target_price=s.get('target_price'),
+                )
+                session.add(rec)
+            session.commit()
+        finally:
+            session.close()
 
     def get_system_status(self):
         global scheduler_instance
@@ -136,23 +120,24 @@ class WebAppManager:
         }
 
     def _last_update(self):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('SELECT MAX(created_at) FROM stock_recommendations')
-        r = c.fetchone()[0]
-        conn.close()
-        return r or '从未更新'
+        session = get_session_context()
+        try:
+            from sqlalchemy import func
+            r = session.query(func.max(StockRecommendation.created_at)).scalar()
+            if r is None:
+                return "从未更新"
+            return r.isoformat() if hasattr(r, "isoformat") else str(r)
+        finally:
+            session.close()
 
     def add_analysis_run(self, task_id: str, started_at: str):
         """记录一次分析任务开始（供分析历史）"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute(
-            'INSERT INTO analysis_runs (task_id, status, started_at) VALUES (?, ?, ?)',
-            (task_id, 'pending', started_at),
-        )
-        conn.commit()
-        conn.close()
+        session = get_session_context()
+        try:
+            session.add(AnalysisRun(task_id=task_id, status='pending', started_at=started_at))
+            session.commit()
+        finally:
+            session.close()
 
     def update_analysis_run(
         self,
@@ -164,53 +149,71 @@ class WebAppManager:
         error_message: str = None,
     ):
         """更新分析任务结束状态"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('''
-            UPDATE analysis_runs SET status=?, finished_at=?, result_count=?, result_date=?, error_message=?
-            WHERE task_id=?
-        ''', (status, finished_at or '', result_count or 0, result_date or '', error_message or '', task_id))
-        conn.commit()
-        conn.close()
+        session = get_session_context()
+        try:
+            run = session.query(AnalysisRun).filter(AnalysisRun.task_id == task_id).first()
+            if run:
+                run.status = status
+                run.finished_at = finished_at or ''
+                run.result_count = result_count or 0
+                run.result_date = result_date or ''
+                run.error_message = error_message or ''
+            session.commit()
+        finally:
+            session.close()
 
     def get_analysis_runs(self, limit: int = 50):
         """获取分析历史列表，按创建时间倒序"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('''
-            SELECT id, task_id, status, started_at, finished_at, result_count, result_date, error_message, created_at
-            FROM analysis_runs ORDER BY id DESC LIMIT ?
-        ''', (limit,))
-        cols = ['id', 'task_id', 'status', 'started_at', 'finished_at', 'result_count', 'result_date', 'error_message', 'created_at']
-        rows = [dict(zip(cols, r)) for r in c.fetchall()]
-        conn.close()
-        return rows
+        session = get_session_context()
+        try:
+            rows = (
+                session.query(AnalysisRun)
+                .order_by(AnalysisRun.id.desc())
+                .limit(limit)
+                .all()
+            )
+            return [r.to_dict() for r in rows]
+        finally:
+            session.close()
 
     def get_strategy_config(self):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute("SELECT config_key, config_value FROM system_config WHERE config_key LIKE 'strategy_%'")
-        rows = c.fetchall()
-        conn.close()
-        cfg = {'tech_weight': 0.65, 'auction_weight': 0.35, 'score_threshold': 0.65,
-               'max_recommendations': 15, 'min_price': 2.0, 'max_price': 300.0}
-        for k, v in rows:
-            name = k.replace('strategy_', '')
-            if name in cfg:
-                try:
-                    cfg[name] = float(v) if name != 'max_recommendations' else int(v)
-                except ValueError:
-                    pass
-        return cfg
+        session = get_session_context()
+        try:
+            rows = (
+                session.query(SystemConfig.config_key, SystemConfig.config_value)
+                .filter(SystemConfig.config_key.like('strategy_%'))
+                .all()
+            )
+            cfg = {'tech_weight': 0.65, 'auction_weight': 0.35, 'score_threshold': 0.65,
+                   'max_recommendations': 15, 'min_price': 2.0, 'max_price': 300.0}
+            for k, v in rows:
+                name = k.replace('strategy_', '')
+                if name in cfg:
+                    try:
+                        cfg[name] = float(v) if name != 'max_recommendations' else int(v)
+                    except ValueError:
+                        pass
+            return cfg
+        finally:
+            session.close()
 
     def save_strategy_config(self, cfg):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        for k, v in cfg.items():
-            c.execute('INSERT OR REPLACE INTO system_config (config_key,config_value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)',
-                      (f'strategy_{k}', str(v)))
-        conn.commit()
-        conn.close()
+        session = get_session_context()
+        try:
+            for k, v in cfg.items():
+                existing = session.query(SystemConfig).filter(
+                    SystemConfig.config_key == f'strategy_{k}'
+                ).first()
+                if existing:
+                    existing.config_value = str(v)
+                else:
+                    session.add(SystemConfig(
+                        config_key=f'strategy_{k}',
+                        config_value=str(v),
+                    ))
+            session.commit()
+        finally:
+            session.close()
 
 
 web_manager = WebAppManager()
@@ -380,10 +383,19 @@ def api_daily_from_screener():
 def api_daily_update_status():
     try:
         d = request.json or {}
-        conn = sqlite3.connect(web_manager.db_path)
-        conn.cursor().execute('UPDATE stock_recommendations SET status=? WHERE id=?', (d.get('status'), d.get('id')))
-        conn.commit(); conn.close()
-        return jsonify({'success': True})
+        rec_id = d.get('id')
+        status = d.get('status')
+        if rec_id is None:
+            return jsonify({'success': False, 'message': 'missing id'})
+        session = get_session_context()
+        try:
+            rec = session.query(StockRecommendation).filter(StockRecommendation.id == rec_id).first()
+            if rec:
+                rec.status = status
+            session.commit()
+            return jsonify({'success': True})
+        finally:
+            session.close()
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 

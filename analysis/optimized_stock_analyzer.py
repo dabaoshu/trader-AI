@@ -28,51 +28,45 @@ class OptimizedStockAnalyzer:
         self.analysis_results = {}
         
     def get_strategy_config(self):
-        """获取策略配置"""
+        """获取策略配置（从 models 的 SystemConfig 读取）"""
         try:
-            import sqlite3
-            conn = sqlite3.connect("data/cchan_web.db")
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT config_key, config_value FROM system_config 
-                WHERE config_key LIKE 'strategy_%'
-            ''')
-            
-            results = cursor.fetchall()
-            conn.close()
-            
+            from models import SystemConfig, get_session_context
+
+            session = get_session_context()
+            try:
+                results = (
+                    session.query(SystemConfig.config_key, SystemConfig.config_value)
+                    .filter(SystemConfig.config_key.like("strategy_%"))
+                    .all()
+                )
+            finally:
+                session.close()
+
             # 默认配置（降低筛选条件）
             config = {
-                'tech_weight': 0.65,
-                'auction_weight': 0.35,
-                'score_threshold': 0.45,  # 降低阈值从0.65到0.45
-                'max_recommendations': 15,
-                'min_price': 2.0,
-                'max_price': 300.0
+                "tech_weight": 0.65,
+                "auction_weight": 0.35,
+                "score_threshold": 0.45,
+                "max_recommendations": 15,
+                "min_price": 2.0,
+                "max_price": 300.0,
             }
-            
             for key, value in results:
-                config_name = key.replace('strategy_', '')
+                config_name = key.replace("strategy_", "")
                 if config_name in config:
                     try:
-                        if config_name in ['tech_weight', 'auction_weight', 'score_threshold', 'min_price', 'max_price']:
+                        if config_name in ["tech_weight", "auction_weight", "score_threshold", "min_price", "max_price"]:
                             config[config_name] = float(value)
-                        elif config_name == 'max_recommendations':
+                        elif config_name == "max_recommendations":
                             config[config_name] = int(value)
                     except ValueError:
                         pass
-            
-            # 确保阈值不会过高
-            if config['score_threshold'] > 0.7:
-                config['score_threshold'] = 0.55
-                
+            if config["score_threshold"] > 0.7:
+                config["score_threshold"] = 0.55
             return config
-            
         except Exception:
-            # 返回宽松的默认配置
             return {
-                'tech_weight': 0.65,
+                "tech_weight": 0.65,
                 'auction_weight': 0.35,
                 'score_threshold': 0.45,
                 'max_recommendations': 15,
@@ -630,79 +624,71 @@ class OptimizedStockAnalyzer:
                 for rec in final_recommendations:
                     rec['explanation'] = f"{rec.get('stock_name', rec.get('symbol', ''))}：技术面表现良好，建议关注。"
             
-            # >>> Explain Builder Patch - 生成详细HTML解释并保存到数据库
+            # >>> Explain Builder Patch - 生成详细HTML解释并保存到数据库（ORM）
             try:
                 from backend.explain_builder import build_explain_html
-                import sqlite3
-                import os
-                
-                conn = sqlite3.connect(os.path.join('.', "data/cchan_web.db"))
-                cur = conn.cursor()
-                
+                from models import StockAnalysis, get_session_context, init_db
+
+                init_db()
                 print(f"🔧 开始为 {len(final_recommendations)} 只股票生成详细解释...")
-                
+                analysis_date = datetime.now().strftime("%Y-%m-%d")
+
                 for rec in final_recommendations:
                     try:
-                        # 构建结构数据字典（模拟缠论数据）
                         structure_dict = {
-                            '30m': {
-                                'vol_stats': {
-                                    'volume_factor': rec.get('volume_ratio', 1.0)
-                                }
+                            "30m": {
+                                "vol_stats": {"volume_factor": rec.get("volume_ratio", 1.0)}
                             }
                         }
-                        
-                        # 设置信号类型
-                        if rec.get('total_score', 0) > 0.8:
-                            rec['signal'] = '强买入信号'
-                        elif rec.get('total_score', 0) > 0.6:
-                            rec['signal'] = '买入信号'
+                        if rec.get("total_score", 0) > 0.8:
+                            rec["signal"] = "强买入信号"
+                        elif rec.get("total_score", 0) > 0.6:
+                            rec["signal"] = "买入信号"
                         else:
-                            rec['signal'] = '关注信号'
-                        
-                        # 生成HTML解释和价格数据
+                            rec["signal"] = "关注信号"
                         html_content, prices_json = build_explain_html(
-                            rec['symbol'], 
-                            rec, 
-                            structure_dict
+                            rec["symbol"], rec, structure_dict
                         )
-                        
-                        # 保存到推荐字典中
-                        rec['explain_html'] = html_content
-                        rec['mini_prices'] = prices_json
-                        
-                        # 保存到数据库
-                        cur.execute('''
-                            INSERT OR REPLACE INTO stock_analysis 
-                            (symbol, stock_name, analysis_date, total_score, tech_score, 
-                             auction_score, confidence, entry_price, stop_loss, target_price, 
-                             explanation, explain_html, mini_prices, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                        ''', (
-                            rec['symbol'],
-                            rec.get('stock_name', ''),
-                            datetime.now().strftime('%Y-%m-%d'),
-                            rec.get('total_score', 0),
-                            rec.get('tech_score', 0),
-                            rec.get('auction_score', 0),
-                            rec.get('confidence', 'medium'),
-                            rec.get('entry_price', 0),
-                            rec.get('stop_loss', 0),
-                            rec.get('target_price', 0),
-                            rec.get('explanation', ''),
-                            html_content,
-                            prices_json
-                        ))
-                        
+                        rec["explain_html"] = html_content
+                        rec["mini_prices"] = prices_json
+
+                        session = get_session_context()
+                        try:
+                            row = (
+                                session.query(StockAnalysis)
+                                .filter(
+                                    StockAnalysis.symbol == rec["symbol"],
+                                    StockAnalysis.analysis_date == analysis_date,
+                                )
+                                .first()
+                            )
+                            if not row:
+                                row = StockAnalysis(
+                                    symbol=rec["symbol"],
+                                    stock_name=rec.get("stock_name", ""),
+                                    analysis_date=analysis_date,
+                                )
+                                session.add(row)
+                            row.stock_name = rec.get("stock_name", "")
+                            row.total_score = rec.get("total_score", 0)
+                            row.tech_score = rec.get("tech_score", 0)
+                            row.auction_score = rec.get("auction_score", 0)
+                            row.confidence = rec.get("confidence", "medium")
+                            row.entry_price = rec.get("entry_price", 0)
+                            row.stop_loss = rec.get("stop_loss", 0)
+                            row.target_price = rec.get("target_price", 0)
+                            row.explanation = rec.get("explanation", "")
+                            row.explain_html = html_content
+                            row.mini_prices = prices_json
+                            session.commit()
+                        finally:
+                            session.close()
                     except Exception as e:
                         print(f"⚠️ 为股票 {rec.get('symbol', 'unknown')} 生成解释失败: {e}")
-                        rec['explain_html'] = f"<div class='text-center py-4 text-gray-500'>解释生成失败: {str(e)}</div>"
-                        rec['mini_prices'] = "[]"
-                
-                conn.commit()
-                conn.close()
-                print(f"✅ 详细解释生成完成，已保存到数据库")
-                
+                        rec["explain_html"] = "<div class='text-center py-4 text-gray-500'>解释生成失败: {str(e)}</div>"
+                        rec["mini_prices"] = "[]"
+
+                print("✅ 详细解释生成完成，已保存到数据库")
             except Exception as e:
                 print(f"⚠️ 批量生成解释失败: {e}")
             
